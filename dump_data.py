@@ -51,8 +51,21 @@ class Config:
         return '{%s}' % (', '.join(['%s: %s' % (x, self.conf[x]) for x in sorted(self.conf.keys())]))
 
 
+class Statistic:
+    __slots__ = ('name', 'nameidx', 'value', 'passed')
+
+    def __init__(self, name, value, passed):
+        self.name = name
+        self.nameidx = None
+        self.value = value
+        self.passed = passed
+
+    def __repr__(self):
+        return '%s:%s:%s' % (self.name if self.name else self.nameidx, self.value, self.passed)
+
+
 class Stest:
-    __slots__ = ('id', 'idx', 'variant_id', 'params', 'pvals', 'variant')
+    __slots__ = ('id', 'idx', 'variant_id', 'params', 'pvals', 'stats', 'variant')
 
     def __init__(self, idd, idx, variant_id, params=None):
         self.id = idd
@@ -60,7 +73,11 @@ class Stest:
         self.variant_id = variant_id
         self.params = params or None  # type: Config
         self.pvals = []
+        self.stats = []
         self.variant = None
+
+    def __repr__(self):
+        return 'Subtest(%s, %s, lenpvals=%s, stats=%s, variant=%s)' % (self.idx, self.params, len(self.pvals), self.stats, self.variant)
 
 
 class TVar:
@@ -73,6 +90,9 @@ class TVar:
         self.settings = settings or None  # type: Config
         self.sub_tests = {}
         self.test = None
+
+    def __repr__(self):
+        return 'Variant(%s, %s, test=%s)' % (self.vidx, self.settings, self.test)
 
 
 class Test:
@@ -88,6 +108,9 @@ class Test:
         self.battery = None
         self.variants = {}
 
+    def __repr__(self):
+        return 'Test(%s, battery=%s)' % (self.name, self.battery)
+
 
 class Battery:
     def __init__(self, idd, name, passed, total, alpha, exp_id):
@@ -100,6 +123,9 @@ class Battery:
         self.exp = None
         self.tests = {}  # type: dict[int, Test]
 
+    def __repr__(self):
+        return 'Battery(%s, exp=%s)' % (self.name, self.exp)
+
 
 class Experiment:
     def __init__(self, eid, name, parsed):
@@ -107,6 +133,9 @@ class Experiment:
         self.name = name
         self.parsed = parsed
         self.batteries = {}  # type: dict[int, Battery]
+
+    def __repr__(self):
+        return 'Exp(%s)' % self.name
 
 
 class Loader:
@@ -122,6 +151,7 @@ class Loader:
         self.usettings_indices_db = {}
         self.test_par_db = {}
         self.test_par_indices_db = {}
+        self.stats_db = {}
 
         self.to_proc_test = []  # type: list[Test]
         self.to_proc_variant = []  # type: list[TVar]
@@ -165,6 +195,12 @@ class Loader:
     def new_param(self, t):
         if t not in self.test_par_db:
             self.test_par_db[t] = len(self.test_par_db)
+
+    def new_stats(self, s: Statistic, name):
+        if name not in self.stats_db:
+            self.stats_db[name] = len(self.stats_db)
+        s.nameidx = self.stats_db[name]
+        return s
 
     def break_exp(self, s):
         m = re.match(r'^SECMARGINPAPER(\d)_([\w]+?)_seed_([\w]+?)_([\w]+?)__([\w_-]+?)(\.bin)?$', s)
@@ -285,7 +321,16 @@ class Loader:
                 sidmap[k].pvals = [x[0] for x in g]
 
             # All statistics
-            # TODO:
+            c.execute("""
+                        SELECT `name`, `value`, `result`, `subtest_id` FROM statistics 
+                        WHERE subtest_id IN (%s) ORDER BY subtest_id
+                      """ % ','.join([str(x) for x in sids]))
+
+            for k, g in itertools.groupby(c.fetchall(), lambda x: x[3]):
+                for st in g:
+                    stat = Statistic(st[0], st[1], st[2] == 'passed')
+                    self.new_stats(stat, st[0])
+                    sidmap[k].stats.append(stat)
 
         self.to_proc_stest = []
 
@@ -293,6 +338,7 @@ class Loader:
         self.connect()
 
         with self.conn.cursor() as c:
+            # Load all experiments
             logger.info("Loading all experiments")
             c.execute("""
                 SELECT id, name FROM experiments 
@@ -308,7 +354,9 @@ class Loader:
 
             # Load batteries for all experiments, chunked.
             eids = sorted(list(self.experiments.keys()))
-            eids = [eids[0]]  # TODO: debugging
+            logger.info("Number of all experiments: %s" % len(eids))
+
+            eids = eids[0:130]  # TODO: debugging
             logger.info("Loading all batteries, len: %s" % len(eids))
 
             for bs in chunks(eids, 10):
@@ -331,6 +379,7 @@ class Loader:
             bids = sorted(list(self.bat2exp.keys()))
             bidsmap = {x.id: x for x in batteries}
             logger.info("Loading all tests, len: %s" % len(bids))
+            del (batteries)
 
             for bs in chunks(bids, 20):
                 c.execute("""
@@ -352,6 +401,7 @@ class Loader:
             self.process_stest(True)
 
             logger.info('DONE')
+
 
 def main():
     l = Loader()
