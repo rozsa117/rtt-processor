@@ -619,10 +619,12 @@ class Loader:
         res_data = collections.OrderedDict()
         res_data['res_chars'] = res_chars
         res_data['res_chars_tests'] = {k: sorted(list(res_chars_tests[k])) for k in res_chars_tests}
-        res_data['exp_data'] = exp_data
         res_data['test_configs'] = test_configs
         res_data['test_configs_val'] = test_configs_val
         json.dump(res_data, open('res_chars.json', 'w'), indent=2)
+
+        res_data['exp_data'] = exp_data
+        json.dump(res_data, open('res_chars_full.json', 'w'), indent=2)
 
         logger.info('DONE ')
 
