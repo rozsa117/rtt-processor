@@ -7,6 +7,8 @@ import re
 import logging
 import coloredlogs
 import itertools
+import collections
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -38,10 +40,12 @@ class Config:
         self.id = None
 
     def hashable(self):
-        ret = []
-        for k in sorted(self.conf.keys()):
-            ret.append((k, self.conf[k]))
-        return tuple(ret)
+        """Hashable representation of the configuration, with values"""
+        return tuple((k, self.conf[k]) for k in sorted(self.conf.keys()))
+
+    def keys_tuple(self):
+        """Hashable representation of configuration keys"""
+        return tuple(sorted(self.conf.keys()))
 
     @property
     def cfg(self):
@@ -65,19 +69,30 @@ class Statistic:
 
 
 class Stest:
-    __slots__ = ('id', 'idx', 'variant_id', 'params', 'pvals', 'stats', 'variant')
+    __slots__ = ('id', 'idx', 'variant_id', 'params', 'pvals', 'npvals', 'stats', 'variant')
 
     def __init__(self, idd, idx, variant_id, params=None):
         self.id = idd
-        self.idx = idx
+        self.idx = idx  # subtest index in the variant
         self.variant_id = variant_id
         self.params = params or None  # type: Config
-        self.pvals = []
-        self.stats = []
-        self.variant = None
+        self.pvals = []  # type: list[float]
+        self.stats = []  # type: list[Statistic]
+        self.variant = None  # type: TVar
+        self.npvals = 0
+
+    def set_pvals(self, pvals):
+        self.pvals = pvals
+        self.npvals = len(pvals)
+
+    def set_pvals_cnt(self, cnt):
+        self.npvals = cnt
 
     def __repr__(self):
-        return 'Subtest(%s, %s, lenpvals=%s, stats=%s, variant=%s)' % (self.idx, self.params, len(self.pvals), self.stats, self.variant)
+        return 'Subtest(%s, %s, lenpvals=%s, stats=%s, variant=%s)' % (self.idx, self.params, self.npvals, self.stats, self.variant)
+
+    def result_characteristic(self):
+        return tuple([self.npvals] + sorted([x.name for x in self.stats]))
 
 
 class TVar:
@@ -85,11 +100,11 @@ class TVar:
 
     def __init__(self, id, vidx, test_id, settings=None):
         self.id = id
-        self.vidx = vidx
+        self.vidx = vidx  # variant_index in the test set
         self.test_id = test_id
         self.settings = settings or None  # type: Config
-        self.sub_tests = {}
-        self.test = None
+        self.sub_tests = {}  # type: dict[int, Stest]
+        self.test = None  # type: Test
 
     def __repr__(self):
         return 'Variant(%s, %s, test=%s)' % (self.vidx, self.settings, self.test)
@@ -212,9 +227,9 @@ class Loader:
 
     def process_test(self, force=False):
         if len(self.to_proc_test) == 0:
-            return
-        if len(self.to_proc_test) < 50 and not force:
-            return
+            return False
+        if len(self.to_proc_test) < 1000 and not force:
+            return False
 
         ids = sorted(list([x.id for x in self.to_proc_test]))
         idmap = {x.id: x for x in self.to_proc_test}  # type: dict[int, Test]
@@ -233,6 +248,7 @@ class Loader:
                 self.on_variant_loaded(tv)
 
         self.to_proc_test = []
+        return True
 
     def on_variant_loaded(self, variant):
         self.to_proc_variant.append(variant)
@@ -240,9 +256,9 @@ class Loader:
 
     def process_variant(self, force=False):
         if len(self.to_proc_variant) == 0:
-            return
-        if len(self.to_proc_variant) < 100 and not force:
-            return
+            return False
+        if len(self.to_proc_variant) < 2000 and not force:
+            return False
 
         vids = sorted(list([x.id for x in self.to_proc_variant]))
         vidmap = {x.id: x for x in self.to_proc_variant}
@@ -278,6 +294,7 @@ class Loader:
                     self.on_stest_loaded(stest)
 
         self.to_proc_variant = []
+        return True
 
     def on_stest_loaded(self, stest):
         self.sids[stest.id] = stest
@@ -286,9 +303,9 @@ class Loader:
 
     def process_stest(self, force=False):
         if len(self.to_proc_stest) == 0:
-            return
-        if len(self.to_proc_stest) < 500 and not force:
-            return
+            return False
+        if len(self.to_proc_stest) < 10000 and not force:
+            return False
 
         sids = sorted(list([x.id for x in self.to_proc_stest]))
         sidmap = {x.id: x for x in self.to_proc_stest}  # type: dict[int, Stest]
@@ -333,12 +350,14 @@ class Loader:
                     sidmap[k].stats.append(stat)
 
         self.to_proc_stest = []
+        return True
 
     def main(self):
         self.connect()
 
         with self.conn.cursor() as c:
             # Load all experiments
+            tstart = time.time()
             logger.info("Loading all experiments")
             c.execute("""
                 SELECT id, name FROM experiments 
@@ -399,8 +418,21 @@ class Loader:
             self.process_test(True)
             self.process_variant(True)
             self.process_stest(True)
+            logger.info('Time finished: %s' % (time.time() - tstart))
 
-            logger.info('DONE')
+            res_chars = collections.defaultdict(lambda: 0)
+            res_chars_tests = collections.defaultdict(lambda: set())
+
+            for stest in self.sids.values():
+                char_str = '|'.join([str(x) for x in stest.result_characteristic()])
+
+                res_chars[char_str] += 1
+                res_chars_tests[char_str].add()
+
+            print(res_chars)
+            json.dump(res_chars, open('res_chars.json', 'w'), indent=2)
+
+            logger.info('DONE ')
 
 
 def main():
