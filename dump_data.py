@@ -101,6 +101,7 @@ class Stest:
             d += list(self.variant.short_desc())
         return d
 
+
 class TVar:
     __slots__ = ('id', 'vidx', 'test_id', 'settings', 'sub_tests', 'test')
 
@@ -143,6 +144,7 @@ class Test:
         if self.battery:
             d += list(self.battery.short_desc())
         return d
+
 
 class Battery:
     def __init__(self, idd, name, passed, total, alpha, exp_id):
@@ -241,6 +243,9 @@ class Loader:
     def break_exp(self, s):
         m = re.match(r'^SECMARGINPAPER(\d)_([\w]+?)_seed_([\w]+?)_([\w]+?)__([\w_-]+?)(\.bin)?$', s)
         return m.groups() if m else None
+
+    def queue_summary(self):
+        return len(self.to_proc_test), len(self.to_proc_variant), len(self.to_proc_stest)
 
     def on_test_loaded(self, test):
         self.to_proc_test.append(test)
@@ -465,6 +470,9 @@ class Loader:
             self.process_variant(True)
             self.process_stest(True)
             logger.info('Time finished: %s' % (time.time() - tstart))
+            logger.info('Num experiments: %s' % len(self.experiments))
+            logger.info('Num stests: %s' % len(self.sids))
+            logger.info('Queues: %s' % (self.queue_summary(),))
 
             res_chars = collections.defaultdict(lambda: 0)
             res_chars_tests = collections.defaultdict(lambda: set())
