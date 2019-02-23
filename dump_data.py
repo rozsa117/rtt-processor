@@ -206,14 +206,22 @@ class Loader:
         self.to_proc_variant = []  # type: list[TVar]
         self.to_proc_stest = []  # type: list[Stest]
 
-    def proc_args(self):
+    def proc_args(self, args=None):
         parser = argparse.ArgumentParser(description='RTT result processor')
         parser.add_argument('--small', dest='small', action='store_const', const=True, default=False,
                             help='Small result set (few experiments)')
         parser.add_argument('--only-pval-cnt', dest='only_pval_cnt', action='store_const', const=True, default=False,
                             help='Load only pval counts, not actual values (faster)')
 
-        self.args = parser.parse_args()
+        self.args, unparsed = parser.parse_known_args()
+        logger.debug("Unparsed: %s" % unparsed)
+
+        # args override
+        if not args:
+            return
+
+        for k in args:
+            setattr(self.args, k, args[k])
 
     def connect(self):
         cfg = configparser.ConfigParser()
@@ -492,9 +500,12 @@ class Loader:
             self.process_variant(True)
             self.process_stest(True)
 
-    def main(self):
-        self.proc_args()
+    def init(self, args=None):
+        self.proc_args(args)
         self.connect()
+
+    def load(self, args=None):
+        self.init(args)
 
         tstart = time.time()
         self.load_data()
@@ -504,6 +515,9 @@ class Loader:
         logger.info('Num tests: %s' % len(self.tests))
         logger.info('Num stests: %s' % len(self.sids))
         logger.info('Queues: %s' % (self.queue_summary(),))
+
+    def main(self, args=None):
+        self.load(args)
 
         res_chars = collections.defaultdict(lambda: 0)
         res_chars_tests = collections.defaultdict(lambda: set())
