@@ -76,7 +76,7 @@ class Stest:
         self.id = idd
         self.idx = idx  # subtest index in the variant
         self.variant_id = variant_id
-        self.params = params or None  # type: Config
+        self.params = params or Config()  # type: Config
         self.pvals = []  # type: list[float]
         self.stats = []  # type: list[Statistic]
         self.variant = None  # type: TVar
@@ -109,7 +109,7 @@ class TVar:
         self.id = id
         self.vidx = vidx  # variant_index in the test set
         self.test_id = test_id
-        self.settings = settings or None  # type: Config
+        self.settings = settings or Config()  # type: Config
         self.sub_tests = {}  # type: dict[int, Stest]
         self.test = None  # type: Test
 
@@ -134,7 +134,7 @@ class Test:
         self.test_idx = test_idx
         self.battery_id = battery_id
         self.battery = None  # type: Battery
-        self.variants = {}
+        self.variants = {}  # type: dict[int, TVar]
 
     def __repr__(self):
         return 'Test(%s, battery=%s)' % (self.name, self.battery)
@@ -164,11 +164,21 @@ class Battery:
         return [self.name, ]
 
 
+class ExpInfo:
+    def __init__(self, eid=None, meth=None, seed=None, osize=None, size=None, fnc=None):
+        self.id = eid
+        self.meth = meth
+        self.seed = seed
+        self.osize = osize
+        self.size = size
+        self.fnc = fnc
+
+
 class Experiment:
-    def __init__(self, eid, name, parsed):
+    def __init__(self, eid, name, exp_info):
         self.id = eid
         self.name = name
-        self.parsed = parsed
+        self.exp_info = exp_info  # type: ExpInfo
         self.batteries = {}  # type: dict[int, Battery]
 
     def __repr__(self):
@@ -180,7 +190,8 @@ class Loader:
         self.args = None
         self.conn = None
         self.experiments = {}  # type: dict[int, Experiment]
-        self.bat2exp = {}
+        self.batteries = {}  # type: dict[int, Battery]
+        self.tests = {}  # type: dict[int, Test]
         self.sids = {}  # type: dict[int, Stest]
 
         self.batteries_db = {}
@@ -194,6 +205,15 @@ class Loader:
         self.to_proc_test = []  # type: list[Test]
         self.to_proc_variant = []  # type: list[TVar]
         self.to_proc_stest = []  # type: list[Stest]
+
+    def proc_args(self):
+        parser = argparse.ArgumentParser(description='RTT result processor')
+        parser.add_argument('--small', dest='small', action='store_const', const=True, default=False,
+                            help='Small result set (few experiments)')
+        parser.add_argument('--only-pval-cnt', dest='only_pval_cnt', action='store_const', const=True, default=False,
+                            help='Load only pval counts, not actual values (faster)')
+
+        self.args = parser.parse_args()
 
     def connect(self):
         cfg = configparser.ConfigParser()
@@ -240,15 +260,30 @@ class Loader:
         s.nameidx = self.stats_db[name]
         return s
 
+    def parse_size(self, s):
+        m = re.match(r'^(\d+)(?:([kmgt])(i)?)?b$', s.lower(), re.I)
+        if m is None:
+            return m
+
+        tbl = {None: 0, 'k': 1, 'm': 2, 'g': 3, 't': 4}
+        base = 1000 if m.group(3) is None else 1024
+        return int(m.group(1)) * pow(base, tbl[m.group(2)])
+
     def break_exp(self, s):
         m = re.match(r'^SECMARGINPAPER(\d)_([\w]+?)_seed_([\w]+?)_([\w]+?)__([\w_-]+?)(\.bin)?$', s)
-        return m.groups() if m else None
+        if m is None:
+            return ExpInfo()
+
+        psize = self.parse_size(m.group(4))
+        ei = ExpInfo(eid=m.group(1), meth=m.group(2), seed=m.group(3), osize=m.group(4), size=psize, fnc=m.group(5))
+        return ei
 
     def queue_summary(self):
         return len(self.to_proc_test), len(self.to_proc_variant), len(self.to_proc_stest)
 
     def on_test_loaded(self, test):
         self.to_proc_test.append(test)
+        self.tests[test.id] = test
         self.process_test()
 
     def process_test(self, force=False):
@@ -317,6 +352,7 @@ class Loader:
                 for cc in g:
                     stest = Stest(*cc)
                     stest.variant = vidmap[k]
+                    stest.variant.sub_tests[stest.id] = stest
                     self.on_stest_loaded(stest)
 
         self.to_proc_variant = []
@@ -392,41 +428,28 @@ class Loader:
         self.to_proc_stest = []
         return True
 
-    def proc_args(self):
-        parser = argparse.ArgumentParser(description='RTT result processor')
-        parser.add_argument('--small', dest='small', action='store_const', const=True, default=False,
-                            help='Small result set (few experiments)')
-        parser.add_argument('--only-pval-cnt', dest='only_pval_cnt', action='store_const', const=True, default=False,
-                            help='Load only pval counts, not actual values (faster)')
-
-        self.args = parser.parse_args()
-
-    def main(self):
-        self.proc_args()
-        self.connect()
-
+    def load_data(self):
         with self.conn.cursor() as c:
             # Load all experiments
-            tstart = time.time()
             logger.info("Loading all experiments")
             c.execute("""
                 SELECT id, name FROM experiments 
                 WHERE (name LIKE 'SECMARGINPAPER2%' OR name LIKE 'SECMARGINPAPER3%')
             """)
 
-            batteries = []  # type: list[Battery]
-
             for result in c.fetchall():
                 eid, name = result
-                parsed = self.break_exp(name)
-                self.experiments[eid] = Experiment(eid, name, parsed)
+                exp_info = self.break_exp(name)
+                self.experiments[eid] = Experiment(eid, name, exp_info)
 
             # Load batteries for all experiments, chunked.
             eids = sorted(list(self.experiments.keys()))
+            bat2exp = {}
             logger.info("Number of all experiments: %s" % len(eids))
 
             if self.args.small:
                 eids = eids[0:2]
+
             logger.info("Loading all batteries, len: %s" % len(eids))
 
             for bs in chunks(eids, 10):
@@ -440,16 +463,15 @@ class Loader:
 
                     bt = Battery(*result)
                     bt.exp = self.experiments[bt.exp_id]
-                    batteries.append(bt)
 
+                    self.batteries[bt.id] = bt
                     self.experiments[bt.exp_id].batteries[bt.id] = bt
-                    self.bat2exp[bt.id] = bt.exp_id
+                    bat2exp[bt.id] = bt.exp_id
 
             # Load all tests for all batteries
-            bids = sorted(list(self.bat2exp.keys()))
-            bidsmap = {x.id: x for x in batteries}
+            bids = sorted(list(bat2exp.keys()))
+            bidsmap = {x.id: x for x in self.batteries.values()}
             logger.info("Loading all tests, len: %s" % len(bids))
-            del (batteries)
 
             for bs in chunks(bids, 20):
                 c.execute("""
@@ -469,27 +491,88 @@ class Loader:
             self.process_test(True)
             self.process_variant(True)
             self.process_stest(True)
-            logger.info('Time finished: %s' % (time.time() - tstart))
-            logger.info('Num experiments: %s' % len(self.experiments))
-            logger.info('Num stests: %s' % len(self.sids))
-            logger.info('Queues: %s' % (self.queue_summary(),))
 
-            res_chars = collections.defaultdict(lambda: 0)
-            res_chars_tests = collections.defaultdict(lambda: set())
+    def main(self):
+        self.proc_args()
+        self.connect()
 
-            for stest in self.sids.values():
-                char_str = '|'.join([str(x) for x in stest.result_characteristic()])
-                sdest = tuple(reversed(stest.short_desc()))
+        tstart = time.time()
+        self.load_data()
+        logger.info('Time finished: %s' % (time.time() - tstart))
+        logger.info('Num experiments: %s' % len(self.experiments))
+        logger.info('Num batteries: %s' % len(self.batteries))
+        logger.info('Num tests: %s' % len(self.tests))
+        logger.info('Num stests: %s' % len(self.sids))
+        logger.info('Queues: %s' % (self.queue_summary(),))
 
-                res_chars[char_str] += 1
-                res_chars_tests[char_str].add(sdest)
+        res_chars = collections.defaultdict(lambda: 0)
+        res_chars_tests = collections.defaultdict(lambda: set())
 
-            res_data = collections.OrderedDict()
-            res_data['res_chars'] = res_chars
-            res_data['res_chars_tests'] = {k: sorted(list(res_chars_tests[k])) for k in res_chars_tests}
-            json.dump(res_data, open('res_chars.json', 'w'), indent=2)
+        for stest in self.sids.values():
+            char_str = '|'.join([str(x) for x in stest.result_characteristic()])
+            sdest = tuple(reversed(stest.short_desc()))
 
-            logger.info('DONE ')
+            res_chars[char_str] += 1
+            res_chars_tests[char_str].add(sdest)
+
+        exp_data = collections.OrderedDict()
+        for exp in self.experiments.values():
+            cdata = collections.OrderedDict()
+            cdata['id'] = exp.id
+            cdata['name'] = exp.name
+            cdata['meth'] = exp.exp_info.meth
+            cdata['seed'] = exp.exp_info.seed
+            cdata['size'] = exp.exp_info.size
+            cdata['osize'] = exp.exp_info.osize
+            cdata['fnc'] = exp.exp_info.fnc
+            cdata['batteries'] = []
+
+            for bt in exp.batteries.values():
+                bdata = collections.OrderedDict()
+                bdata['id'] = bt.id
+                bdata['name'] = bt.name
+                bdata['passed'] = bt.passed
+                bdata['alpha'] = bt.alpha
+                bdata['total'] = bt.total
+                bdata['tests'] = []
+                cdata['batteries'].append(bdata)
+
+                for tt in bt.tests.values():
+                    tdata = collections.OrderedDict()
+                    bdata['tests'].append(tdata)
+                    tdata['id'] = tt.id
+                    tdata['name'] = tt.name
+                    tdata['passed'] = tt.passed
+                    tdata['palpha'] = tt.palpha
+                    tdata['variants'] = []
+
+                    for vt in tt.variants.values():
+                        vdata = collections.OrderedDict()
+                        tdata['variants'].append(vdata)
+                        vdata['id'] = vt.id
+                        vdata['idx'] = vt.vidx
+                        vdata['settings'] = vt.settings.conf
+                        vdata['subtests'] = []
+
+                        for st in vt.sub_tests.values():
+                            sdata = collections.OrderedDict()
+                            vdata['subtests'].append(sdata)
+                            sdata['id'] = st.id
+                            sdata['idx'] = st.idx
+                            sdata['params'] = st.params.conf
+                            sdata['desc'] = st.short_desc()
+                            sdata['res_char'] = st.result_characteristic()
+
+            # experiment
+            exp_data[exp.id] = cdata
+
+        res_data = collections.OrderedDict()
+        res_data['res_chars'] = res_chars
+        res_data['res_chars_tests'] = {k: sorted(list(res_chars_tests[k])) for k in res_chars_tests}
+        res_data['exp_data'] = exp_data
+        json.dump(res_data, open('res_chars.json', 'w'), indent=2)
+
+        logger.info('DONE ')
 
 
 def main():
