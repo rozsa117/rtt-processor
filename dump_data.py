@@ -48,6 +48,10 @@ class Config:
         """Hashable representation of configuration keys"""
         return tuple(sorted(self.conf.keys()))
 
+    def values_tuple(self):
+        """Hashable representation of configuration values"""
+        return tuple([self.conf[x] for x in sorted(self.conf.keys())])
+
     @property
     def cfg(self):
         return self.conf
@@ -586,24 +590,38 @@ class Loader:
                     lambda: 0
                 )))
 
+        # Data sizes -> tests -> test_config -> config_data -> counts
+        test_configs_val = collections.defaultdict(
+            lambda: collections.defaultdict(
+                lambda: collections.defaultdict(
+                    lambda: collections.defaultdict(
+                        lambda: 0
+                ))))
+
         for tt in self.tests.values():
             exp = tt.battery.exp
             size = exp.exp_info.size
             tt_id = '|'.join(reversed(tt.short_desc()))
 
             for vv in tt.variants.values():
-                cf = vv.settings.keys_tuple()
-                cfs = '|'.join([str(x) for x in cf])
+                cfs = '|'.join([str(x) for x in vv.settings.keys_tuple()])
+                cfv = '|'.join([str(x) for x in vv.settings.values_tuple()])
+
                 for ss in vv.sub_tests.values():
                     tfs = '|'.join([str(x) for x in ss.params.keys_tuple()])
+                    tfv = '|'.join([str(x) for x in ss.params.values_tuple()])
                     tcfg = '{%s}{%s}' % (cfs, tfs)
+                    tcfg_val = '{%s}{%s}' % (cfv, tfv)
+
                     test_configs[size][tt_id][tcfg] += 1
+                    test_configs_val[size][tt_id][tcfg][tcfg_val] += 1
 
         res_data = collections.OrderedDict()
         res_data['res_chars'] = res_chars
         res_data['res_chars_tests'] = {k: sorted(list(res_chars_tests[k])) for k in res_chars_tests}
         res_data['exp_data'] = exp_data
         res_data['test_configs'] = test_configs
+        res_data['test_configs_val'] = test_configs_val
         json.dump(res_data, open('res_chars.json', 'w'), indent=2)
 
         logger.info('DONE ')
