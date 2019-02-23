@@ -9,6 +9,7 @@ import coloredlogs
 import itertools
 import collections
 import json
+import argparse
 
 
 logger = logging.getLogger(__name__)
@@ -92,8 +93,13 @@ class Stest:
         return 'Subtest(%s, %s, lenpvals=%s, stats=%s, variant=%s)' % (self.idx, self.params, self.npvals, self.stats, self.variant)
 
     def result_characteristic(self):
-        return tuple([self.npvals] + sorted([x.name for x in self.stats]))
+        return tuple([self.npvals > 0] + sorted([x.name for x in self.stats]))
 
+    def short_desc(self):
+        d = [self.idx]
+        if self.variant:
+            d += list(self.variant.short_desc())
+        return d
 
 class TVar:
     __slots__ = ('id', 'vidx', 'test_id', 'settings', 'sub_tests', 'test')
@@ -109,6 +115,12 @@ class TVar:
     def __repr__(self):
         return 'Variant(%s, %s, test=%s)' % (self.vidx, self.settings, self.test)
 
+    def short_desc(self):
+        d = [self.vidx]
+        if self.test:
+            d += list(self.test.short_desc())
+        return d
+
 
 class Test:
     __slots__ = ('id', 'name', 'palpha', 'passed', 'test_idx', 'battery_id', 'battery', 'variants')
@@ -120,12 +132,17 @@ class Test:
         self.passed = passed
         self.test_idx = test_idx
         self.battery_id = battery_id
-        self.battery = None
+        self.battery = None  # type: Battery
         self.variants = {}
 
     def __repr__(self):
         return 'Test(%s, battery=%s)' % (self.name, self.battery)
 
+    def short_desc(self):
+        d = [self.name]
+        if self.battery:
+            d += list(self.battery.short_desc())
+        return d
 
 class Battery:
     def __init__(self, idd, name, passed, total, alpha, exp_id):
@@ -141,6 +158,9 @@ class Battery:
     def __repr__(self):
         return 'Battery(%s, exp=%s)' % (self.name, self.exp)
 
+    def short_desc(self):
+        return [self.name, ]
+
 
 class Experiment:
     def __init__(self, eid, name, parsed):
@@ -155,6 +175,7 @@ class Experiment:
 
 class Loader:
     def __init__(self):
+        self.args = None
         self.conn = None
         self.experiments = {}  # type: dict[int, Experiment]
         self.bat2exp = {}
@@ -328,16 +349,30 @@ class Loader:
                 sidmap[k].params = cfg
                 self.new_stest_config(cfg)
 
-            # All pvalues (heavy)
-            c.execute("""
-                        SELECT `value`, `subtest_id` FROM p_values 
-                        WHERE subtest_id IN (%s) ORDER BY subtest_id
-                      """ % ','.join([str(x) for x in sids]))
+            # Pvalue counts only
+            if self.args.only_pval_cnt:
+                logger.info("Loading all subtest pval counts, len: %s" % len(sids))
+                c.execute("""
+                            SELECT COUNT(*), `subtest_id` FROM p_values
+                            WHERE subtest_id IN (%s) GROUP BY `subtest_id` ORDER BY subtest_id
+                          """ % ','.join([str(x) for x in sids]))
 
-            for k, g in itertools.groupby(c.fetchall(), lambda x: x[1]):
-                sidmap[k].pvals = [x[0] for x in g]
+                for cnt, k in c.fetchall():
+                    sidmap[k].set_pvals_cnt(cnt)
+
+            else:
+                # All pvalues (heavy)
+                logger.info("Loading all subtest pvalues, len: %s" % len(sids))
+                c.execute("""
+                            SELECT `value`, `subtest_id` FROM p_values
+                            WHERE subtest_id IN (%s) ORDER BY subtest_id
+                          """ % ','.join([str(x) for x in sids]))
+
+                for k, g in itertools.groupby(c.fetchall(), lambda x: x[1]):
+                    sidmap[k].set_pvals([x[0] for x in g])
 
             # All statistics
+            logger.info("Loading all subtest stats, len: %s" % len(sids))
             c.execute("""
                         SELECT `name`, `value`, `result`, `subtest_id` FROM statistics 
                         WHERE subtest_id IN (%s) ORDER BY subtest_id
@@ -352,7 +387,17 @@ class Loader:
         self.to_proc_stest = []
         return True
 
+    def proc_args(self):
+        parser = argparse.ArgumentParser(description='RTT result processor')
+        parser.add_argument('--small', dest='small', action='store_const', const=True, default=False,
+                            help='Small result set (few experiments)')
+        parser.add_argument('--only-pval-cnt', dest='only_pval_cnt', action='store_const', const=True, default=False,
+                            help='Load only pval counts, not actual values (faster)')
+
+        self.args = parser.parse_args()
+
     def main(self):
+        self.proc_args()
         self.connect()
 
         with self.conn.cursor() as c:
@@ -375,7 +420,8 @@ class Loader:
             eids = sorted(list(self.experiments.keys()))
             logger.info("Number of all experiments: %s" % len(eids))
 
-            eids = eids[0:130]  # TODO: debugging
+            if self.args.small:
+                eids = eids[0:2]
             logger.info("Loading all batteries, len: %s" % len(eids))
 
             for bs in chunks(eids, 10):
@@ -425,12 +471,15 @@ class Loader:
 
             for stest in self.sids.values():
                 char_str = '|'.join([str(x) for x in stest.result_characteristic()])
+                sdest = tuple(reversed(stest.short_desc()))
 
                 res_chars[char_str] += 1
-                res_chars_tests[char_str].add()
+                res_chars_tests[char_str].add(sdest)
 
-            print(res_chars)
-            json.dump(res_chars, open('res_chars.json', 'w'), indent=2)
+            res_data = collections.OrderedDict()
+            res_data['res_chars'] = res_chars
+            res_data['res_chars_tests'] = {k: sorted(list(res_chars_tests[k])) for k in res_chars_tests}
+            json.dump(res_data, open('res_chars.json', 'w'), indent=2)
 
             logger.info('DONE ')
 
