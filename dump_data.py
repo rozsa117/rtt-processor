@@ -154,7 +154,7 @@ class Battery:
         self.total = total
         self.alpha = alpha
         self.exp_id = exp_id
-        self.exp = None
+        self.exp = None  # type: Experiment
         self.tests = {}  # type: dict[int, Test]
 
     def __repr__(self):
@@ -560,16 +560,36 @@ class Loader:
                             sdata['id'] = st.id
                             sdata['idx'] = st.idx
                             sdata['params'] = st.params.conf
-                            sdata['desc'] = st.short_desc()
                             sdata['res_char'] = st.result_characteristic()
 
             # experiment
             exp_data[exp.id] = cdata
 
+        # Data sizes -> tests -> test_config -> counts
+        test_configs = collections.defaultdict(
+            lambda: collections.defaultdict(
+                lambda: collections.defaultdict(
+                    lambda: 0
+                )))
+
+        for tt in self.tests.values():
+            exp = tt.battery.exp
+            size = exp.exp_info.size
+            tt_id = '|'.join(reversed(tt.short_desc()))
+
+            for vv in tt.variants.values():
+                cf = vv.settings.keys_tuple()
+                cfs = '|'.join([str(x) for x in cf])
+                for ss in vv.sub_tests.values():
+                    tfs = '|'.join([str(x) for x in ss.params.keys_tuple()])
+                    tcfg = '{%s}{%s}' % (cfs, tfs)
+                    test_configs[size][tt_id][tcfg] += 1
+
         res_data = collections.OrderedDict()
         res_data['res_chars'] = res_chars
         res_data['res_chars_tests'] = {k: sorted(list(res_chars_tests[k])) for k in res_chars_tests}
         res_data['exp_data'] = exp_data
+        res_data['test_configs'] = test_configs
         json.dump(res_data, open('res_chars.json', 'w'), indent=2)
 
         logger.info('DONE ')
