@@ -230,7 +230,10 @@ class Test:
         return d
 
     def shidak_alpha(self, alpha):
-        return sidak_alpha(alpha, len(self.summarized_pvals)) if len(self.summarized_pvals) > 0 else None
+        return sidak_alpha(alpha, len(self.summarized_pvals)) if self.summarized_pvals else None
+
+    def get_single_pval(self):
+        return sidak_inv(min(self.summarized_pvals), len(self.summarized_pvals)) if self.summarized_pvals else None
 
 
 class Battery:
