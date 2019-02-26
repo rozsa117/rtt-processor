@@ -113,6 +113,14 @@ def is_statistical_test(name):
     return name.lower() in STATISTICAL_PREFIXES
 
 
+def filter_experiments(exps, fnc):
+    return [bool(fnc(x)) for x in exps]
+
+
+def project_tests(tests_srt, bitmap):
+    return [(x[0], itertools.compress(x[1], bitmap)) for x in tests_srt]
+
+
 class Config:
     def __init__(self, conf=None):
         self.conf = conf or {}
@@ -262,6 +270,9 @@ class ExpInfo:
         self.osize = osize
         self.size = size
         self.fnc = fnc
+        self.fnc_name = None
+        self.fnc_round = None
+        self.fnc_block = None
 
 
 class Experiment:
@@ -314,6 +325,8 @@ class Loader:
                             help='Small result set (few experiments)')
         parser.add_argument('--only-pval-cnt', dest='only_pval_cnt', action='store_const', const=True, default=False,
                             help='Load only pval counts, not actual values (faster)')
+        parser.add_argument('--no-pvals', dest='no_pvals', action='store_const', const=True, default=False,
+                            help='Do not load pvals')
 
         self.args, unparsed = parser.parse_known_args()
         logger.debug("Unparsed: %s" % unparsed)
@@ -386,6 +399,12 @@ class Loader:
 
         psize = self.parse_size(m.group(4))
         ei = ExpInfo(eid=m.group(1), meth=m.group(2), seed=m.group(3), osize=m.group(4), size=psize, fnc=m.group(5))
+
+        m = re.match(r'^([\w_-]+)_r([\d]+)(?:_b([\d]+))(.*)$', m.group(5), re.I)
+        if m:
+            ei.fnc_name = m.group(1)
+            ei.fnc_round = int(m.group(2))
+            ei.fnc_block = m.group(3)
         return ei
 
     def queue_summary(self):
@@ -500,8 +519,11 @@ class Loader:
                 sidmap[k].params = cfg
                 self.new_stest_config(cfg)
 
-            # Pvalue counts only
-            if self.args.only_pval_cnt:
+            if self.args.no_pvals:
+                pass
+
+            elif self.args.only_pval_cnt:
+                # Pvalue counts only
                 logger.info("Loading all subtest pval counts, len: %s" % len(sids))
                 c.execute("""
                             SELECT COUNT(*), `subtest_id` FROM p_values
