@@ -294,6 +294,7 @@ class Loader:
         self.batteries = {}  # type: dict[int, Battery]
         self.tests = {}  # type: dict[int, Test]
         self.sids = {}  # type: dict[int, Stest]
+        self.picked_stats = None
 
         self.batteries_db = {}
         self.tests_db = {}
@@ -651,6 +652,8 @@ class Loader:
 
     def comp_sub_pvals(self):
         """Computes summarized pvals"""
+        self.picked_stats = collections.defaultdict(lambda: 0)
+
         for tt in self.tests.values():
             tt_id = '|'.join(reversed(tt.short_desc()))
 
@@ -664,6 +667,9 @@ class Loader:
                     if len(ss.stats) == 0:
                         logger.debug('Null statistics for test %s:%s:%s' % (tt_id, cfv, tfv))
                         continue
+
+                    picked = pick_one_statistic(ss.stats)
+                    self.picked_stats[picked.name] += 1
 
                     tt.summarized_pvals += self.pick_stats(ss.stats, add_all=False, pick_one=True)
 
