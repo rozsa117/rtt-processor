@@ -10,7 +10,7 @@ import itertools
 import collections
 import json
 import argparse
-from typing import Optional
+from typing import Optional, List
 
 
 logger = logging.getLogger(__name__)
@@ -272,7 +272,7 @@ class Experiment:
         return 'Exp(%s)' % self.name
 
 
-def pick_one_statistic(stats: list[Statistic]) -> Optional[Statistic]:
+def pick_one_statistic(stats: List[Statistic]) -> Optional[Statistic]:
     if len(stats) == 0:
         return None
     for st in STATISTICAL_PREFIXES:
@@ -640,7 +640,7 @@ class Loader:
         # WARNING: this strategy does not work well if resulting tree is unbalanced. It has to be perfectly symmetric.
         if not pick_one:
             pvals = [x.value for x in stats]
-            return sidak_inv(min(pvals), len(pvals))
+            return [sidak_inv(min(pvals), len(pvals))]
 
         # Strategy 3: Pick one fixed p-value from the result. Prefer Chi-Square, then KS, then AD. First found.
         st = pick_one_statistic(stats)
@@ -662,7 +662,7 @@ class Loader:
                         logger.debug('Null statistics for test %s:%s:%s' % (tt_id, cfv, tfv))
                         continue
 
-                    tt.summarized_pvals += self.pick_stats(ss.stats)
+                    tt.summarized_pvals += self.pick_stats(ss.stats, add_all=False, pick_one=True)
 
     def comp_exp_data(self):
         exp_data = collections.OrderedDict()
