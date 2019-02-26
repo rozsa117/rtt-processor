@@ -10,11 +10,15 @@ import itertools
 import collections
 import json
 import argparse
+from typing import Optional
 
 
 logger = logging.getLogger(__name__)
 coloredlogs.CHROOT_FILES = []
 coloredlogs.install(level=logging.DEBUG, use_chroot=False)
+
+
+STATISTICAL_PREFIXES = ['chi', 'kolm', 'ander', 'ad']
 
 
 def chunks(items, size):
@@ -33,6 +37,80 @@ def get_test_statistics(conn, test_id):
         """, (test_id, ))
 
         return [float(x[0]) for x in c.fetchall()]
+
+
+def sidak_alpha(alpha, m):
+    """
+    Compute new significance level alpha for M independent tests.
+    More tests -> unexpected events occur more often thus alpha has to be adjusted.
+    Overall test battery fails if min(pvals) < new_alpha.
+    """
+    return 1 - (1 - alpha)**(1./m)
+
+
+def sidak_inv(alpha, m):
+    """
+    Inverse transformation of sidak_alpha function.
+    Used to compute final p-value of M independent tests if while preserving the
+    same significance level for the resulting p-value.
+    """
+    return 1 - (1 - alpha)**m
+
+
+def test_sidak():
+    alpha = .01
+    nvals = [.07, .02, .002007, 0.98, 0.55]
+    ns_ex = sidak_alpha(alpha, len(nvals))
+    nsicp = sidak_inv(min(nvals), len(nvals))
+
+    print('alpha: %s' % alpha)
+    print('min p: %s' % min(nvals))
+    print('sh  t: %s, %s' % (ns_ex, min(nvals) < ns_ex))
+    print('shi p: %s, %s' % (nsicp, nsicp < alpha))
+
+    for alpha in [.01, .05]:
+        for new_value in [.001, .002, .002007, .002008, .002009, .003, .004, .01]:
+            nvals = [.07, .02, 0.98, 0.55] + [new_value]
+            ns_ex = sidak_alpha(alpha, len(nvals))
+            nsicp = sidak_inv(min(nvals), len(nvals))
+            if (min(nvals) < ns_ex) != (nsicp < alpha):
+                print('alpha: %s' % alpha)
+                print('min p: %s' % min(nvals))
+                print('sh  t: %s, %s' % (ns_ex, min(nvals) < ns_ex))
+                print('shi p: %s, %s' % (nsicp, nsicp < alpha))
+                raise ValueError('ERROR')
+
+
+def merge_pvals(pvals, batch=2):
+    """
+    Merging pvals with Sidak.
+
+    Note that the merging tree has to be symmetric, otherwise the computation on pvalues is not correct.
+    Note: 1-(1-(1-(1-x)^3))^2 == 1-((1-x)^3)^2 == 1-(1-x)^6.
+    Example: 12 nodes, binary tree: [12] -> [2,2,2,2,2,2] -> [2,2,2]. So far it is symmetric.
+    The next layer of merge is problematic as we merge [2,2] and [2] to two p-values.
+    If a minimum is from [2,2] (L) it is a different expression as from [2] R as the lists
+    have different lengths. P-value from [2] would increase in significance level compared to Ls on this new layer
+    and this it has to be corrected.
+    On the other hand, the L minimum has to be corrected as well as it came from
+    list of the length 3. We want to obtain 2 p-values which can be merged as if they were equal (exponent 2).
+    Thus the exponent on the [2,2] and [2] layer will be 3/2 as we had 3 p-values in total and we are producing 2.
+    """
+    if len(pvals) <= 1:
+        return pvals
+
+    batch = min(max(2, batch), len(pvals))  # norm batch size
+    parts = list(chunks(pvals, batch))
+    exponent = len(pvals) / len(parts)
+    npvals = []
+    for p in parts:
+        pi = sidak_inv(min(p), exponent)
+        npvals.append(pi)
+    return merge_pvals(npvals, batch)
+
+
+def is_statistical_test(name):
+    return name.lower() in STATISTICAL_PREFIXES
 
 
 class Config:
@@ -128,7 +206,8 @@ class TVar:
 
 
 class Test:
-    __slots__ = ('id', 'name', 'palpha', 'passed', 'test_idx', 'battery_id', 'battery', 'variants')
+    __slots__ = ('id', 'name', 'palpha', 'passed', 'test_idx', 'battery_id', 'battery', 'variants',
+                 'summarized_pvals', )
 
     def __init__(self, idd, name, palpha, passed, test_idx, battery_id):
         self.id = idd
@@ -139,6 +218,7 @@ class Test:
         self.battery_id = battery_id
         self.battery = None  # type: Battery
         self.variants = {}  # type: dict[int, TVar]
+        self.summarized_pvals = []
 
     def __repr__(self):
         return 'Test(%s, battery=%s)' % (self.name, self.battery)
@@ -148,6 +228,9 @@ class Test:
         if self.battery:
             d += list(self.battery.short_desc())
         return d
+
+    def shidak_alpha(self, alpha):
+        return sidak_alpha(alpha, len(self.summarized_pvals)) if len(self.summarized_pvals) > 0 else None
 
 
 class Battery:
@@ -187,6 +270,17 @@ class Experiment:
 
     def __repr__(self):
         return 'Exp(%s)' % self.name
+
+
+def pick_one_statistic(stats: list[Statistic]) -> Optional[Statistic]:
+    if len(stats) == 0:
+        return None
+    for st in STATISTICAL_PREFIXES:
+        for cur in stats:
+            name = cur.name.lower()
+            if name.startswith(st):
+                return cur
+    return stats[0]
 
 
 class Loader:
@@ -437,6 +531,9 @@ class Loader:
                     self.new_stats(stat, st[0])
                     sidmap[k].stats.append(stat)
 
+                # Sort stats according to the name
+                sidmap[k].stats.sort(key=lambda x: x.name)
+
         self.to_proc_stest = []
         return True
 
@@ -520,19 +617,54 @@ class Loader:
         logger.info('Num stests: %s' % len(self.sids))
         logger.info('Queues: %s' % (self.queue_summary(),))
 
-    def main(self, args=None):
-        self.load(args)
+    def process(self):
+        """Computes summarized pvals"""
+        self.comp_sub_pvals()
 
-        res_chars = collections.defaultdict(lambda: 0)
-        res_chars_tests = collections.defaultdict(lambda: set())
+    def pick_stats(self, stats, add_all=False, pick_one=False):
+        """Picks the correct statistics to test for"""
+        if len(stats) == 0:
+            return []
+        if len(stats) == 1:
+            return [stats[0].value]
 
-        for stest in self.sids.values():
-            char_str = '|'.join([str(x) for x in stest.result_characteristic()])
-            sdest = tuple(reversed(stest.short_desc()))
+        # Strategy 1: Return all statistics.
+        # Makes sense if the stats are about independent parts of the test. E.g., chi-squares of different parts.
+        # However if the tests are highly correlated such as Chi-Square, AD, KS test of the same thing it could
+        # skew the statistics.
+        if add_all:
+            return [x.value for x in stats]
 
-            res_chars[char_str] += 1
-            res_chars_tests[char_str].add(sdest)
+        # Strategy 2: Compute resulting p-value from all pvalues in collected stats.
+        # Same as above, if pvalues are independent, result are better and we can compute one final pvalue.
+        # WARNING: this strategy does not work well if resulting tree is unbalanced. It has to be perfectly symmetric.
+        if not pick_one:
+            pvals = [x.value for x in stats]
+            return sidak_inv(min(pvals), len(pvals))
 
+        # Strategy 3: Pick one fixed p-value from the result. Prefer Chi-Square, then KS, then AD. First found.
+        st = pick_one_statistic(stats)
+        return [st.value]
+
+    def comp_sub_pvals(self):
+        """Computes summarized pvals"""
+        for tt in self.tests.values():
+            tt_id = '|'.join(reversed(tt.short_desc()))
+
+            for vv in tt.variants.values():
+                # cfs = '|'.join([str(x) for x in vv.settings.keys_tuple()])
+                cfv = '|'.join([str(x) for x in vv.settings.values_tuple()])
+
+                for ss in vv.sub_tests.values():
+                    # tfs = '|'.join([str(x) for x in ss.params.keys_tuple()])
+                    tfv = '|'.join([str(x) for x in ss.params.values_tuple()])
+                    if len(ss.stats) == 0:
+                        logger.debug('Null statistics for test %s:%s:%s' % (tt_id, cfv, tfv))
+                        continue
+
+                    tt.summarized_pvals += self.pick_stats(ss.stats)
+
+    def comp_exp_data(self):
         exp_data = collections.OrderedDict()
         for exp in self.experiments.values():
             cdata = collections.OrderedDict()
@@ -582,6 +714,22 @@ class Loader:
 
             # experiment
             exp_data[exp.id] = cdata
+        return exp_data
+
+    def main(self, args=None):
+        self.load(args)
+
+        res_chars = collections.defaultdict(lambda: 0)
+        res_chars_tests = collections.defaultdict(lambda: set())
+
+        for stest in self.sids.values():
+            char_str = '|'.join([str(x) for x in stest.result_characteristic()])
+            sdest = tuple(reversed(stest.short_desc()))
+
+            res_chars[char_str] += 1
+            res_chars_tests[char_str].add(sdest)
+
+        exp_data = self.comp_exp_data()
 
         # Data sizes -> tests -> test_config -> counts
         test_configs = collections.defaultdict(
