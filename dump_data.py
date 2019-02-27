@@ -165,6 +165,33 @@ def get_ex_byidx(bitmap, idx):  # new index -> old index
     raise ValueError('Not found')
 
 
+def get_maximum_detections(selection, tests_srt, do_p):
+    ctests = project_tests(tests_srt, selection)
+    total_det = sum(selection) * len(tests_srt)
+    tests_undefined = collections.defaultdict(lambda: 0)  # tname -> # of NONE in test
+    total_def_det = 0
+
+    # Fails removal & report
+    for tname, tvals in ctests:
+        for idx, tval in enumerate(tvals):
+            if tval is None:
+                eidx = get_ex_byidx(selection, idx)
+                tests_undefined[tname] += 1
+                # print('%s : %s' % (tname, exps[eidx].name))
+            else:
+                total_def_det += 1
+    return total_def_det
+
+
+def get_detections(ctests, alpha):
+    totals = len(ctests) * len(ctests[0][1])
+    test_fails = [sum(1 for y in x[1] if y is None) for x in ctests]
+    tests_detections = [(x[0],
+                         sum(1 for y in x[1] if y is not None and y <= alpha) / (len(x[1]) - test_fails[i]))
+                        for i, x in enumerate(ctests) if (len(x[1]) - test_fails[i]) > 0]
+    return tests_detections
+
+
 class Config:
     def __init__(self, conf=None):
         self.conf = conf or {}
