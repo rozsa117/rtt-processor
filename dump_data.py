@@ -113,12 +113,56 @@ def is_statistical_test(name):
     return name.lower() in STATISTICAL_PREFIXES
 
 
+def median(inp, is_sorted=False):
+    inp = sorted(inp) if not is_sorted else inp
+    return None if not inp else (inp[len(inp) // 2])
+
+
 def filter_experiments(exps, fnc):
     return [bool(fnc(x)) for x in exps]
 
 
 def project_tests(tests_srt, bitmap):
-    return [(x[0], itertools.compress(x[1], bitmap)) for x in tests_srt]
+    return [(x[0], list(itertools.compress(x[1], bitmap))) for x in tests_srt]
+
+
+def get_rounds(exps):
+    f2r = collections.defaultdict(lambda: [])
+    for x in exps:
+        f2r[x.exp_info.fnc_name].append(x.exp_info.fnc_round)
+    return f2r
+
+
+def get_top_rounds(exps):
+    f2r = get_rounds(exps)
+    return {k: max(f2r[k]) for k in f2r}
+
+
+def get_low_rounds(exps):
+    f2r = get_rounds(exps)
+    return {k: min(f2r[k]) for k in f2r}
+
+
+def get_med_rounds(exps):
+    f2r = get_rounds(exps)
+    return {k: median(f2r[k]) for k in f2r}
+
+
+def get_exid(rev_exp, bitmap, name):  # name -> new index
+    idx = rev_exp[name]
+    return sum(bitmap[:idx])
+
+
+def get_ex_byidx(bitmap, idx):  # new index -> old index
+    oidx = 0
+    cnt = 0
+    for i, x in enumerate(bitmap):
+        if x == 1:  # selected to new round
+            if cnt == idx:
+                return oidx
+            cnt += 1
+        oidx += 1
+    raise ValueError('Not found')
 
 
 class Config:
