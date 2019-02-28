@@ -26,6 +26,27 @@ def chunks(items, size):
         yield items[i : i + size]
 
 
+def unique_justseen(iterable, key=None):
+    """List unique elements, preserving order. Remember only the element just seen."""
+    # unique_justseen('AAAABBBCCDAABBB') --> A B C D A B
+    # unique_justseen('ABBCcAD', str.lower) --> A B C A D
+    return list(map(next, map(lambda x: x[1], itertools.groupby(iterable, key))))
+
+
+def bins(iterable, nbins=1, key=lambda x: x, ceil_bin=False):
+    vals = [key(x) for x in iterable]
+    min_v = min(vals)
+    max_v = max(vals)
+    bin_size = ((1 + max_v - min_v) / float(nbins))
+    bin_size = math.ceil(bin_size) if ceil_bin else bin_size
+    bins = [[] for _ in range(nbins)]
+    for c in iterable:
+        cv = key(c)
+        cbin = int((cv - min_v) / bin_size)
+        bins[cbin].append(c)
+    return bins
+
+
 # Not used, just an example
 def get_test_statistics(conn, test_id):
     with conn.cursor() as c:
@@ -345,6 +366,11 @@ class ExpInfo:
         self.fnc_round = None
         self.fnc_block = None
 
+    def __repr__(self):
+        return 'Einfo(id=%r, m=%r, s=%r, si=%r, osi=%r, fname=%r, fr=%r, fb=%r)' % (
+            self.id, self.meth, self.seed, self.size, self.osize, self.fnc_name, self.fnc_round, self.fnc_block
+        )
+
 
 class Experiment:
     def __init__(self, eid, name, exp_info):
@@ -471,7 +497,7 @@ class Loader:
             return ExpInfo()
 
         psize = self.parse_size(m.group(4))
-        ei = ExpInfo(eid=m.group(1), meth=m.group(2), seed=m.group(3), osize=m.group(4), size=psize, fnc=m.group(5))
+        ei = ExpInfo(eid=int(m.group(1)), meth=m.group(2), seed=m.group(3), osize=m.group(4), size=psize, fnc=m.group(5))
 
         m = re.match(r'^([\w_-]+)_r([\d]+)(?:_b([\d]+))(.*)$', m.group(5), re.I)
         if m:
