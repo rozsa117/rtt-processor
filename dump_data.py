@@ -139,6 +139,10 @@ def median(inp, is_sorted=False):
     return None if not inp else (inp[len(inp) // 2])
 
 
+def compress_fnc(exps, fnc):
+    return [x for x in exps if fnc(x)]
+
+
 def filter_experiments(exps, fnc):
     return [bool(fnc(x)) for x in exps]
 
@@ -171,6 +175,10 @@ def get_med_rounds(exps):
 
 def get_exid(rev_exp, bitmap, name):  # name -> new index
     idx = rev_exp[name]
+    return sum(bitmap[:idx])
+
+
+def get_ex_newidx(bitmap, idx):
     return sum(bitmap[:idx])
 
 
