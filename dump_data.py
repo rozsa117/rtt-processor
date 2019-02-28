@@ -398,6 +398,8 @@ class Loader:
                             help='Load only pval counts, not actual values (faster)')
         parser.add_argument('--no-pvals', dest='no_pvals', action='store_const', const=True, default=False,
                             help='Do not load pvals')
+        parser.add_argument('--exps', dest='experiments', nargs=argparse.ZERO_OR_MORE, default=[2, 3],
+                            help='Experiment numbers to load')
 
         self.args, unparsed = parser.parse_known_args()
         logger.debug("Unparsed: %s" % unparsed)
@@ -640,12 +642,16 @@ class Loader:
             logger.info("Loading all experiments")
             c.execute("""
                 SELECT id, name FROM experiments 
-                WHERE (name LIKE 'SECMARGINPAPER2%' OR name LIKE 'SECMARGINPAPER3%')
+                WHERE name LIKE 'SECMARGINPAPER%'
             """)
 
+            wanted_exps = set([int(x) for x in self.args.experiments])
             for result in c.fetchall():
                 eid, name = result
                 exp_info = self.break_exp(name)
+                if exp_info.id not in wanted_exps:
+                    continue
+
                 self.experiments[eid] = Experiment(eid, name, exp_info)
 
             # Load batteries for all experiments, chunked.
