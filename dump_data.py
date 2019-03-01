@@ -783,7 +783,7 @@ class Loader:
         st = pick_one_statistic(stats)
         return [st.value]
 
-    def comp_sub_pvals(self):
+    def comp_sub_pvals(self, add_all=False, pick_one=True):
         """Computes summarized pvals"""
         self.picked_stats = collections.defaultdict(lambda: 0)
 
@@ -801,10 +801,11 @@ class Loader:
                         logger.debug('Null statistics for test %s:%s:%s' % (tt_id, cfv, tfv))
                         continue
 
-                    picked = pick_one_statistic(ss.stats)
-                    self.picked_stats[picked.name] += 1
+                    if not add_all and pick_one:
+                        picked = pick_one_statistic(ss.stats)
+                        self.picked_stats[picked.name] += 1
 
-                    tt.summarized_pvals += self.pick_stats(ss.stats, add_all=False, pick_one=True)
+                    tt.summarized_pvals += self.pick_stats(ss.stats, add_all=add_all, pick_one=pick_one)
 
     def comp_exp_data(self):
         exp_data = collections.OrderedDict()
