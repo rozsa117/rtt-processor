@@ -1,9 +1,10 @@
 #! /usr/bin/python3
+# @author: Dusan Klinec (ph4r05)
 
-from common.rtt_db_conn import *
+from rtt_tools.common.rtt_db_conn import *
 import configparser
-import sys
 import re
+import math
 import logging
 import coloredlogs
 import itertools

@@ -1,7 +1,7 @@
 import configparser
 import MySQLdb
 import sys
-from common.clilogging import *
+from .clilogging import *
 
 
 # Will create connection to Mysql database

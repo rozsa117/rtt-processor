@@ -1,2 +1,5 @@
 .idea
-
+*.ini
+.ipy*
+venv/
+**/__pycache__/**

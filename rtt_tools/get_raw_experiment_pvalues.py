@@ -1,7 +1,6 @@
 #! /usr/bin/python3
 
-import configparser
-from common.rtt_db_conn import *
+from rtt.common.rtt_db_conn import *
 import sys
 
 
