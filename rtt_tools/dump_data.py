@@ -316,7 +316,7 @@ class TVar:
 
 class Test:
     __slots__ = ('id', 'name', 'palpha', 'passed', 'test_idx', 'battery_id', 'battery', 'variants',
-                 'summarized_pvals', )
+                 'summarized_pvals', 'summarized_passed', )
 
     def __init__(self, idd, name, palpha, passed, test_idx, battery_id):
         self.id = idd
@@ -328,6 +328,7 @@ class Test:
         self.battery = None  # type: Battery
         self.variants = {}  # type: dict[int, TVar]
         self.summarized_pvals = []
+        self.summarized_passed = []
 
     def __repr__(self):
         return 'Test(%s, battery=%s)' % (self.name, self.battery)
@@ -412,6 +413,7 @@ class Loader:
         self.tests = {}  # type: dict[int, Test]
         self.sids = {}  # type: dict[int, Stest]
         self.picked_stats = None
+        self.add_passed = False
 
         self.batteries_db = {}
         self.tests_db = {}
@@ -759,30 +761,34 @@ class Loader:
         """Computes summarized pvals"""
         self.comp_sub_pvals()
 
+    def pack_stat(self, stat):
+        """Packs one stat value to the result. if self.add_passed is set, it returns (pvalue, passed), otherwise pvalue"""
+        return stat.value if not self.add_passed else (stat.value, stat.passed)
+
     def pick_stats(self, stats, add_all=False, pick_one=False):
         """Picks the correct statistics to test for"""
         if len(stats) == 0:
             return []
         if len(stats) == 1:
-            return [stats[0].value]
+            return [stats[0]]
 
         # Strategy 1: Return all statistics.
         # Makes sense if the stats are about independent parts of the test. E.g., chi-squares of different parts.
         # However if the tests are highly correlated such as Chi-Square, AD, KS test of the same thing it could
         # skew the statistics.
         if add_all:
-            return [x.value for x in stats]
+            return stats  # [x.value for x in stats]
 
         # Strategy 2: Compute resulting p-value from all pvalues in collected stats.
         # Same as above, if pvalues are independent, result are better and we can compute one final pvalue.
         # WARNING: this strategy does not work well if resulting tree is unbalanced. It has to be perfectly symmetric.
         if not pick_one:
-            pvals = [x.value for x in stats]
-            return [sidak_inv(min(pvals), len(pvals))]
+            # pvals = [x.value for x in stats]
+            return stats  # [sidak_inv(min(pvals), len(pvals))]
 
         # Strategy 3: Pick one fixed p-value from the result. Prefer Chi-Square, then KS, then AD. First found.
         st = pick_one_statistic(stats)
-        return [st.value]
+        return [st]  # [st.value]
 
     def comp_sub_pvals(self, add_all=False, pick_one=True):
         """Computes summarized pvals"""
@@ -806,7 +812,22 @@ class Loader:
                         picked = pick_one_statistic(ss.stats)
                         self.picked_stats[picked.name] += 1
 
-                    tt.summarized_pvals += self.pick_stats(ss.stats, add_all=add_all, pick_one=pick_one)
+                    picked_stats = self.pick_stats(ss.stats, add_all=add_all, pick_one=pick_one)
+                    picked_pvals = [x.value for x in picked_stats]
+                    picked_pass = [x.passed for x in picked_stats]
+
+                    # Sidak postprocessing.
+                    # Compute resulting p-value from all pvalues in collected stats.
+                    # If pvalues are independent, result are better and we can compute one final pvalue.
+                    # WARNING: this strategy does not work well if resulting tree is unbalanced.
+                    #          It has to be perfectly symmetric.
+                    if not add_all and not pick_one:
+                        picked_pvals = [sidak_inv(min(picked_pvals), len(picked_pvals))]
+                        picked_pass = []
+
+                    tt.summarized_pvals += picked_pvals
+                    if self.add_passed:
+                        tt.summarized_passed += picked_pass
 
     def comp_exp_data(self):
         exp_data = collections.OrderedDict()
