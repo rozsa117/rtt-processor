@@ -3,3 +3,4 @@
 .ipy*
 venv/
 **/__pycache__/**
+data/
