@@ -503,7 +503,7 @@ class Loader:
         return int(m.group(1)) * pow(base, tbl[m.group(2)])
 
     def break_exp(self, s):
-        m = re.match(r'^SECMARGINPAPER(\d)_([\w]+?)_seed_([\w]+?)_([\w]+?)__([\w_-]+?)(\.bin)?$', s)
+        m = re.match(r'^SECMARGINPAPER(\d+)_([\w]+?)_seed_([\w]+?)_([\w]+?)__([\w_-]+?)(\.bin)?$', s)
         if m is None:
             return ExpInfo()
 
