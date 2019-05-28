@@ -48,6 +48,53 @@ def bins(iterable, nbins=1, key=lambda x: x, ceil_bin=False):
     return bins
 
 
+def get_bins(iterable, nbins=1, key=lambda x: x, ceil_bin=False, full=False):
+    vals = [key(x) for x in iterable]
+    min_v = min(vals)
+    max_v = max(vals)
+    bin_size = ((1 + max_v - min_v) / float(nbins))
+    bin_size = math.ceil(bin_size) if ceil_bin else bin_size
+    bins = [[] for _ in range(nbins)]
+    for c in iterable:
+        cv = key(c)
+        cbin = int((cv - min_v) / bin_size)
+        bins[cbin].append(c)
+    return bins if not full else (bins, bin_size, min_v, max_v, len(vals))
+
+
+def get_distrib_fbins(iterable, bin_tup, non_zero=True):  # bins = bins, size, minv, maxv
+    bins, size, minv, maxv, ln = bin_tup  # (idx+0.5)
+    return [x for x in [(minv + (idx) * size, len(bins[idx]) / float(ln)) for idx in range(len(bins))] if
+            not non_zero or x[1] > 0]
+
+
+def get_distrib(iterable, nbins=100, key=lambda x: x, non_zero=True):
+    inp = list(iterable)
+    return get_distrib_fbins(iterable, get_bins(inp, nbins=nbins, key=key, full=True), non_zero=non_zero)
+
+
+def get_bin_val(idx, bin_tup):
+    return len(bin_tup[0][idx]) / float(bin_tup[4])
+
+
+def get_bin_data(x, bin_tup):
+    idx = binize(x, bin_tup)
+    if idx is None:
+        return 0, None
+    return get_bin_val(idx, bin_tup), idx
+
+
+def binize(x, bin_tup):  # returns bin idx where the x lies, None if out of region
+    bins, size, minv, maxv, ln = bin_tup
+    if x < minv or x > maxv + size:
+        return None
+    return int((x - minv) // size)
+
+
+def binned_pmf(x, bin_tup):
+    return get_bin_data(x, bin_tup)[0]
+
+
 # Not used, just an example
 def get_test_statistics(conn, test_id):
     with conn.cursor() as c:
@@ -393,15 +440,15 @@ class Experiment:
         return 'Exp(%s)' % self.name
 
 
-def pick_one_statistic(stats: List[Statistic]) -> Optional[Statistic]:
+def pick_one_statistic(stats: List[Statistic], preflist=None, default_first=True) -> Optional[Statistic]:
     if len(stats) == 0:
         return None
-    for st in STATISTICAL_PREFIXES:
+    for st in (preflist or STATISTICAL_PREFIXES):
         for cur in stats:
             name = cur.name.lower()
             if name.startswith(st):
                 return cur
-    return stats[0]
+    return stats[0] if default_first else None
 
 
 class Loader:
