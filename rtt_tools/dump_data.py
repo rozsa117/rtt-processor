@@ -482,8 +482,10 @@ class Loader:
                             help='Load only pval counts, not actual values (faster)')
         parser.add_argument('--no-pvals', dest='no_pvals', action='store_const', const=True, default=False,
                             help='Do not load pvals')
-        parser.add_argument('--exps', dest='experiments', nargs=argparse.ZERO_OR_MORE, default=[2, 3],
+        parser.add_argument('--exps', dest='experiments', nargs=argparse.ZERO_OR_MORE, default=[],
                             help='Experiment numbers to load')
+        parser.add_argument('--exps-id', dest='experiment_ids', nargs=argparse.ZERO_OR_MORE, default=[], type=int,
+                            help='Experiment IDs numbers to load')
 
         self.args, unparsed = parser.parse_known_args()
         logger.debug("Unparsed: %s" % unparsed)
@@ -726,14 +728,18 @@ class Loader:
             logger.info("Loading all experiments")
             c.execute("""
                 SELECT id, name FROM experiments 
-                WHERE name LIKE 'SECMARGINPAPER%'
+                WHERE name LIKE '%SECMARGINPAPER%'
             """)
 
             wanted_exps = set([int(x) for x in self.args.experiments])
+            wanted_ids = set([int(x) for x in self.args.experiment_ids])
+
             for result in c.fetchall():
                 eid, name = result
                 exp_info = self.break_exp(name)
-                if exp_info.id not in wanted_exps:
+                if len(wanted_exps) > 0 and exp_info.id not in wanted_exps:
+                    continue
+                if len(wanted_ids) > 0 and eid not in wanted_ids:
                     continue
 
                 self.experiments[eid] = Experiment(eid, name, exp_info)
