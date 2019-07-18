@@ -130,6 +130,7 @@ class Exporter:
         self.test_configs_var = None
         self.all_subs = None
         self.fname = None
+        self.res = None
 
         self.exps = None
         self.rev_exp = None
@@ -250,9 +251,9 @@ class Exporter:
     def export(self, base_path='/tmp', fname=None):
         if fname is None:
             if self.experiments:
-                fname = 'rtt-results-dump-%s.json' % ('-'.join(self.experiments))
+                fname = 'rtt-results-dump-%s.json' % ('-'.join([str(x) for x in self.experiments]))
             elif self.experiment_ids:
-                fname = 'rtt-results-dump-EID%s.json' % ('-'.join(self.experiments))
+                fname = 'rtt-results-dump-EID%s.json' % ('-'.join([str(x) for x in self.experiments]))
             else:
                 raise ValueError('Could not auto-determine result fname, please provide fname argument')
 
@@ -262,9 +263,11 @@ class Exporter:
         # Processing
         logger.info("Exporting to the required data format")
         res = process_syso(loader.tests)
+        self.res = res
 
         logger.info("Dumping to json to: %s" % fname)
         rpath = os.path.join(base_path, fname)
         self.fname = rpath
+
         json.dump(res, open(rpath, 'w+'), indent=2)
 
