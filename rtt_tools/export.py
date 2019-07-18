@@ -253,7 +253,7 @@ class Exporter:
             if self.experiments:
                 fname = 'rtt-results-dump-%s.json' % ('-'.join([str(x) for x in self.experiments]))
             elif self.experiment_ids:
-                fname = 'rtt-results-dump-EID%s.json' % ('-'.join([str(x) for x in self.experiments]))
+                fname = 'rtt-results-dump-EID%s.json' % ('-'.join([str(x) for x in self.experiment_ids]))
             else:
                 raise ValueError('Could not auto-determine result fname, please provide fname argument')
 
