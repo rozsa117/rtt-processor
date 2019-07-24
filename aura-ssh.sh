@@ -1,2 +1,3 @@
 #!/bin/bash
-ssh -L 8870:localhost:8870 aura
+: "${JPORT:=8870}"
+ssh -L $JPORT:localhost:$JPORT aura
