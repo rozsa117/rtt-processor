@@ -46,6 +46,8 @@ def unrank(i, n, k):
         cs = j + 1
 
         while True:
+            if n - cs < 0:
+                raise ValueError('Invalid index')
             decr = comb(n - cs, k - s)
             if r > 0 and decr == 0:
                 raise ValueError('Invalid index')
