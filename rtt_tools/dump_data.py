@@ -422,10 +422,14 @@ class ExpInfo:
         self.fnc_name = None
         self.fnc_round = None
         self.fnc_block = None
+        self.key = None
+        self.offset = None
+        self.derivation = None
 
     def __repr__(self):
-        return 'Einfo(id=%r, m=%r, s=%r, si=%r, osi=%r, fname=%r, fr=%r, fb=%r)' % (
-            self.id, self.meth, self.seed, self.size, self.osize, self.fnc_name, self.fnc_round, self.fnc_block
+        return 'Einfo(id=%r, m=%r, s=%r, si=%r, osi=%r, fname=%r, fr=%r, fb=%r, k=%r, off=%r, der=%r)' % (
+            self.id, self.meth, self.seed, self.size, self.osize, self.fnc_name, self.fnc_round, self.fnc_block,
+            self.key, self.offset, self.derivation
         )
 
 
@@ -552,14 +556,18 @@ class Loader:
         return int(m.group(1)) * pow(base, tbl[m.group(2)])
 
     def break_exp(self, s):
-        m = re.match(r'^SECMARGINPAPER(\d+)_([\w]+?)_seed_([\w]+?)_([\w]+?)__([\w_-]+?)(\.bin)?$', s)
+        m = re.match(r'^SECMARGINPAPER(\d+)_([\w]+?)_seed_([\w]+?)_([\w]+?)_(?:_*key_([\w]+?)_off_([\w]+?)_der_([\w]+?)_*)?_([\w_-]+?)(\.bin)?$', s)
         if m is None:
             return ExpInfo()
 
         psize = self.parse_size(m.group(4))
-        ei = ExpInfo(eid=int(m.group(1)), meth=m.group(2), seed=m.group(3), osize=m.group(4), size=psize, fnc=m.group(5))
+        ei = ExpInfo(eid=int(m.group(1)), meth=m.group(2), seed=m.group(3), osize=m.group(4), size=psize, fnc=m.group(8))
+        if m.group(5):
+            ei.key = m.group(5)
+            ei.offset = m.group(6)
+            ei.derivation = m.group(7)
 
-        m = re.match(r'^([\w_-]+)_r([\d]+)(?:_b([\d]+))(.*)$', m.group(5), re.I)
+        m = re.match(r'^([\w_-]+)_r([\d]+)(?:_b([\d]+))(.*)$', m.group(8), re.I)
         if m:
             ei.fnc_name = m.group(1)
             ei.fnc_round = int(m.group(2))
