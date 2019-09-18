@@ -394,13 +394,14 @@ class Test:
 
 
 class Battery:
-    def __init__(self, idd, name, passed, total, alpha, exp_id):
+    def __init__(self, idd, name, passed, total, alpha, exp_id, job_id=None):
         self.id = idd
         self.name = name
         self.passed = passed
         self.total = total
         self.alpha = alpha
         self.exp_id = exp_id
+        self.job_id = job_id
         self.exp = None  # type: Experiment
         self.tests = {}  # type: dict[int, Test]
 
@@ -764,7 +765,10 @@ class Loader:
 
             for bs in chunks(eids, 10):
                 c.execute("""
-                                SELECT * FROM batteries 
+                                SELECT `id`, `name`, `passed_tests`,
+                                       `total_tests`, `alpha`, `experiment_id`, 
+                                       `job_id`
+                                 FROM batteries 
                                 WHERE experiment_id IN (%s)
                             """ % ','.join([str(x) for x in bs]))
 
