@@ -467,6 +467,11 @@ class Loader:
         self.picked_stats = None
         self.add_passed = False
 
+        self.last_bool_battery_id = 1 << 42
+        self.last_bool_variant_id = 1 << 42
+        self.last_bool_test_id = 1 << 42
+        self.last_bool_subtest_id = 1 << 42
+
         self.batteries_db = {}
         self.tests_db = {}
         self.usettings_db = {}
@@ -805,6 +810,126 @@ class Loader:
             self.process_test(True)
             self.process_variant(True)
             self.process_stest(True)
+
+    def load_booltest(self, js=None, fname=None, alpha=1/20000., as_subtests=True):
+        if fname:
+            with open(fname, 'r') as fh:
+                js = json.load(fh)
+
+        if not js:
+            raise ValueError("Empty data")
+
+        # Experiment mapping name -> exp record
+        exp_name_map = {e.name: e for e in self.experiments.values()}
+        sorter = lambda x: (x["data_file"], x["m"], x["deg"], x["k"])
+        js = sorted(js, key=sorter)
+
+        # Experiments matching
+        for k, g in itertools.groupby(js, key=lambda x: x["data_file"]):
+            name = k
+            subs = list(g)
+
+            if name not in exp_name_map:
+                logger.warning("Could not find experiment %s")
+
+            exp = exp_name_map[name]  # type: Experiment
+            bid = self.last_bool_battery_id
+            self.last_bool_battery_id += 1
+
+            # Create battery
+            self.new_battery('booltest')
+            bt = Battery(idd=bid, name='booltest', passed=0, total=0, alpha=alpha, exp_id=exp.id)
+            bt.exp = self.experiments[bt.exp_id]
+
+            self.batteries[bt.id] = bt
+            self.experiments[bt.exp_id].batteries[bt.id] = bt
+
+            if as_subtests:
+                self.load_booltest_as_subtests(bt, alpha, name, subs)
+            else:
+                self.load_booltest_as_tests(bt, alpha, name, subs)
+
+    def load_booltest_as_tests(self, bt: Battery, alpha: float, exp: str, subs: list):
+        self.new_param('deg')
+        self.new_param('k')
+        self.new_param('m')
+
+        for idx, sub in enumerate(subs):
+            tname = 'booltest-%s-%s-%s' % (sub['m'], sub['deg'], sub['k'])
+            tt = Test(idd=self.last_bool_test_id, name=tname, palpha=alpha, passed=not sub['pval0_rej'],
+                      test_idx=idx, battery_id=bt.id)
+
+            tt.battery = bt
+            tt.battery.tests[tt.id] = tt
+            self.tests[tt.id] = tt
+            self.last_bool_test_id += 1
+            self.new_test(tt.name)
+
+            # Create config
+            cfg = Config({'deg': sub['deg'], 'm': sub['m'], 'k': sub['k']})
+            self.new_stest_config(cfg)
+
+            # Create variant
+            tv = TVar(id=self.last_bool_variant_id, vidx=0, test_id=tt.id, settings={})
+            tv.test = tt
+            tv.test.variants[tv.id] = tv
+            tv.settings = cfg
+            self.last_bool_variant_id += 1
+            self.on_variant_loaded(tv)
+
+            # Create subtest
+            stest = Stest(idd=self.last_bool_subtest_id, idx=idx, variant_id=tv.id)
+            stest.params = cfg
+            stest.variant = tv
+            stest.variant.sub_tests[stest.id] = stest
+            self.sids[stest.id] = stest
+            self.last_bool_subtest_id += 1
+
+            stat = Statistic(name='boolres-zscore', value=sub['zscore'], passed=not sub['pval0_rej'])
+            stest.stats = [stat]
+            self.new_stats(stat, stat.name)
+
+            tt.passed = stat.passed
+            bt.passed = tt.passed
+
+    def load_booltest_as_subtests(self, bt: Battery, alpha: float, exp: str, subs: list):
+        # Create test
+        tt = Test(idd=self.last_bool_test_id, name='booltest', palpha=alpha, passed=False,
+                  test_idx=0, battery_id=bt.id)
+
+        tt.battery = bt
+        tt.battery.tests[tt.id] = tt
+        self.tests[tt.id] = tt
+        self.last_bool_test_id += 1
+        self.new_test(tt.name)
+
+        # Create variant
+        tv = TVar(id=self.last_bool_variant_id, vidx=0, test_id=tt.id, settings={})
+        tv.test = tt
+        tv.test.variants[tv.id] = tv
+        self.last_bool_variant_id += 1
+        self.on_variant_loaded(tv)
+
+        # Subtest
+        num_rejects = 0
+        for idx, sub in enumerate(subs):
+            stest = Stest(idd=self.last_bool_subtest_id, idx=idx, variant_id=tv.id)
+            stest.variant = tv
+            stest.variant.sub_tests[stest.id] = stest
+            self.sids[stest.id] = stest
+            self.last_bool_subtest_id += 1
+
+            cfg = Config({'deg': sub['deg'], 'm': sub['m'], 'k': sub['k']})
+            self.new_stest_config(cfg)
+            stest.params = cfg
+
+            stat = Statistic(name='boolres-zscore', value=sub['zscore'], passed=not sub['pval0_rej'])
+            stest.stats = [stat]
+            self.new_stats(stat, stat.name)
+            num_rejects += 0 if stat.passed else 1
+
+        tt.passed = num_rejects < len(subs) / 2
+        bt.passed = tt.passed
 
     def init(self, args=None):
         self.proc_args(args)
