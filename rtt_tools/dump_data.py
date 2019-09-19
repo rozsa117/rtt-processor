@@ -260,13 +260,76 @@ def get_maximum_detections(selection, tests_srt, do_p):
     return total_def_det
 
 
-def get_detections(ctests, alpha):
+def get_detections(ctests, alpha=1e-3):
     totals = len(ctests) * len(ctests[0][1])
-    test_fails = [sum(1 for y in x[1] if y is None) for x in ctests]
-    tests_detections = [(x[0],
-                         sum(1 for y in x[1] if y is not None and y <= alpha) / (len(x[1]) - test_fails[i]))
-                        for i, x in enumerate(ctests) if (len(x[1]) - test_fails[i]) > 0]
+    test_fails = [sum(1 for y in x[1] if y is None) for x in ctests]  # no data cases
+    tests_detections = [(
+        x[0],
+        sum(1 for y in x[1] if y is not None and y <= alpha) / (len(x[1]) - test_fails[i]),
+        sum(1 for y in x[1] if y is not None and y <= alpha),
+        sum(1 for y in x[1] if y is not None and y <= alpha) + 10,
+        test_fails[i],
+        len(x[1])
+        ) for i, x in enumerate(ctests) if (len(x[1]) - test_fails[i]) > 0]
     return tests_detections
+
+
+def fill_x_data(x_data, y_data, x_data_desired, fill_fnc=lambda x: 0):
+    """Augments x, y data to precisely match x_data_desired with fill function. x_data has to be sorted"""
+    # Remove all not present
+    n_x, n_y = [], []
+    xdes_set = set(x_data_desired)
+    for ix, name in enumerate(x_data):
+        if name in xdes_set:
+            n_x.append(x_data[ix])
+            n_y.append(y_data[ix])
+
+    # Add all missing, now is a subset
+    off = 0
+    for idx, name in enumerate(x_data_desired):
+        if idx >= len(n_x) or n_x[idx] != name:
+            n_x.insert(idx, name)
+            n_y.insert(idx, fill_fnc((idx, name)))
+
+    return n_x, n_y
+
+
+def wrapHyphened(txt, width=20):
+    res = ['']
+    parts = txt.split('-')
+    for ix, p in enumerate(parts):
+        if len(res[-1]) + len(p) > width:
+            res.append('')
+        res[-1] += p + ('-' if ix < len(parts) - 1 else '')
+    return res
+
+
+def doChunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
+
+
+def filterTests(tests_srt):
+    res = []
+    excl = [
+        'TestU01 Rabbit|smultin_MultinomialBitsOver',
+        'NIST Statistical Testing Suite|Random Excursions Test',
+        'NIST Statistical Testing Suite|Random Excursions Variant Test',
+    ]
+
+    for x in tests_srt:
+        tname = x[0]
+        if isinstance(tname, (list, tuple)):
+            tname = '|'.join([str(y) for y in tname])
+        skip = False
+        for exx in excl:
+            if tname.startswith(exx):
+                skip = True
+                break
+        if not skip:
+            res.append(x)
+    return res
 
 
 class Config:
