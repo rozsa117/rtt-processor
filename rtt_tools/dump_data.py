@@ -831,6 +831,7 @@ class Loader:
 
             if name not in exp_name_map:
                 logger.warning("Could not find experiment %s")
+                continue
 
             exp = exp_name_map[name]  # type: Experiment
             bid = self.last_bool_battery_id
@@ -875,7 +876,6 @@ class Loader:
             tv.test.variants[tv.id] = tv
             tv.settings = cfg
             self.last_bool_variant_id += 1
-            self.on_variant_loaded(tv)
 
             # Create subtest
             stest = Stest(idd=self.last_bool_subtest_id, idx=idx, variant_id=tv.id)
@@ -908,7 +908,6 @@ class Loader:
         tv.test = tt
         tv.test.variants[tv.id] = tv
         self.last_bool_variant_id += 1
-        self.on_variant_loaded(tv)
 
         # Subtest
         num_rejects = 0
