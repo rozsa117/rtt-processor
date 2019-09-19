@@ -274,7 +274,7 @@ def get_detections(ctests, alpha=1e-3):
     return tests_detections
 
 
-def fill_x_data(x_data, y_data, x_data_desired, fill_fnc=lambda x: 0):
+def fill_x_data(x_data, y_data, x_data_desired, fill_fnc=lambda x: 0, sorted_add=None):
     """Augments x, y data to precisely match x_data_desired with fill function. x_data has to be sorted"""
     # Remove all not present
     n_x, n_y = [], []
@@ -285,11 +285,20 @@ def fill_x_data(x_data, y_data, x_data_desired, fill_fnc=lambda x: 0):
             n_y.append(y_data[ix])
 
     # Add all missing, now is a subset
-    off = 0
-    for idx, name in enumerate(x_data_desired):
-        if idx >= len(n_x) or n_x[idx] != name:
-            n_x.insert(idx, name)
-            n_y.insert(idx, fill_fnc((idx, name)))
+    if sorted_add is not None:
+        len_cur = len(n_x)
+        missing = [(idx, x) for idx, x in enumerate(x_data_desired) if x not in set(n_x)]
+        for ridx, (idx, name) in enumerate(missing):
+            ridx_off = ridx + len_cur if sorted_add > 0 else ridx
+            n_x.insert(ridx_off, name)
+            n_y.insert(ridx_off, fill_fnc((ridx_off, name)))
+
+    else:
+        off = 0
+        for idx, name in enumerate(x_data_desired):
+            if idx >= len(n_x) or n_x[idx] != name:
+                n_x.insert(idx, name)
+                n_y.insert(idx, fill_fnc((idx, name)))
 
     return n_x, n_y
 
@@ -330,6 +339,16 @@ def filterTests(tests_srt):
         if not skip:
             res.append(x)
     return res
+
+
+def sorted_perm(iterable, key=lambda x: x):
+    res = sorted(zip(range(len(iterable)), iterable), key=lambda x: key(x[1]))
+    return [x[1] for x in res], [x[0] for x in res]
+
+
+def apply_permutation(iterable, perm):
+    mp = {x: idx for idx, x in enumerate(perm)}
+    return sorted(zip(range(len(iterable)), iterable), key=lambda x: mp[x[0]])
 
 
 class Config:
