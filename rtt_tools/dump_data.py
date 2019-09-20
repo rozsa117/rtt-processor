@@ -351,6 +351,23 @@ def apply_permutation(iterable, perm):
     return sorted(zip(range(len(iterable)), iterable), key=lambda x: mp[x[0]])
 
 
+# Coverage computation: relative coverage, one input stream - detected if detected with at least one test.
+# num of all detected input streams = maximum, then measure number of detected inputs
+# by subtest relative to this maximum
+def comp_coverage(projected_tests, alpha=1e-5):
+    res = 0
+    num_tests = len(projected_tests)
+    num_exps = len(projected_tests[0][1])
+    for eidx in range(num_exps):
+        for tidx in range(num_tests):
+            c = projected_tests[tidx][1][eidx]
+            if c is not None and c <= alpha:
+                res += 1
+                break
+
+    return res
+
+
 class Config:
     def __init__(self, conf=None):
         self.conf = conf or {}
