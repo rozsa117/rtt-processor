@@ -583,6 +583,26 @@ class Loader:
         self.to_proc_variant = []  # type: list[TVar]
         self.to_proc_stest = []  # type: list[Stest]
 
+    def load_from(self, loader):
+        self.experiments = loader.experiments
+        self.batteries = loader.batteries
+        self.tests = loader.tests
+        self.sids = loader.sids
+        self.picked_stats = loader.picked_stats
+        self.add_passed = loader.add_passed
+        self.last_bool_battery_id = loader.last_bool_battery_id
+        self.last_bool_variant_id = loader.last_bool_variant_id
+        self.last_bool_test_id = loader.last_bool_test_id
+        self.last_bool_subtest_id = loader.last_bool_subtest_id
+
+        self.batteries_db = loader.batteries_db
+        self.tests_db = loader.tests_db
+        self.usettings_db = loader.usettings_db
+        self.usettings_indices_db = loader.usettings_indices_db
+        self.test_par_db = loader.test_par_db
+        self.test_par_indices_db = loader.test_par_indices_db
+        self.stats_db = loader.stats_db
+
     def proc_args(self, args=None):
         parser = argparse.ArgumentParser(description='RTT result processor')
         parser.add_argument('--small', dest='small', action='store_const', const=True, default=False,
@@ -1021,12 +1041,16 @@ class Loader:
             self.new_stest_config(cfg)
             stest.params = cfg
 
-            stat = Statistic(name='boolres-zscore', value=sub['zscore'], passed=not sub['pval0_rej'])
-            stest.stats = [stat]
-            self.new_stats(stat, stat.name)
-            num_rejects += 0 if stat.passed else 1
+            # Fake pvalue according to the precomputed pval tables as we don't have now
+            # the pvalue approximation - not enough reference data.
+            stat1 = Statistic(name='boolres-pval', value=1e-15 if sub['pval0_rej'] else 0.5, passed=not sub['pval0_rej'])
+            stat2 = Statistic(name='boolres-zscore', value=sub['zscore'], passed=not sub['pval0_rej'])
+            stest.stats = [stat1, stat2]
+            self.new_stats(stat1, stat1.name)
+            self.new_stats(stat2, stat2.name)
+            num_rejects += 0 if stat1.passed else 1
 
-        tt.passed = num_rejects < len(subs) / 2
+        tt.passed = num_rejects == 0  # num_rejects < len(subs) / 2
         bt.passed = tt.passed
 
     def init(self, args=None):
