@@ -319,13 +319,13 @@ def doChunks(l, n):
         yield l[i:i + n]
 
 
-def filterTests(tests_srt):
+def filterTests(tests_srt, excl_extra=None):
     res = []
     excl = [
-        'TestU01 Rabbit|smultin_MultinomialBitsOver',
-        'NIST Statistical Testing Suite|Random Excursions Test',
-        'NIST Statistical Testing Suite|Random Excursions Variant Test',
-    ]
+               'TestU01 Rabbit|smultin_MultinomialBitsOver',
+               'NIST Statistical Testing Suite|Random Excursions Test',
+               'NIST Statistical Testing Suite|Random Excursions Variant Test',
+           ] + (excl_extra if excl_extra else [])
 
     for x in tests_srt:
         tname = x[0]
