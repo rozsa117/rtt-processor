@@ -1,5 +1,6 @@
 #! /usr/bin/python3
 # @author: Dusan Klinec (ph4r05)
+# pandas matplotlib numpy networkx graphviz scipy dill configparser coloredlogs mysqlclient requests sarge cryptography paramiko shellescape
 
 from rtt_tools.common.rtt_db_conn import *
 import configparser
@@ -681,7 +682,7 @@ class Loader:
         return int(m.group(1)) * pow(base, tbl[m.group(2)])
 
     def break_exp(self, s):
-        m = re.match(r'^SECMARGINPAPER(\d+)_([\w]+?)_seed_([\w]+?)_([\w]+?)_(?:_*key_([\w]+?)_off_([\w]+?)_der_([\w]+?)_*)?_([\w_-]+?)(\.bin)?$', s)
+        m = re.match(r'^SECMARGINPAPER(\d+)(?:_([\w]+?))?_seed_([\w]+?)_([\w]+?)_(?:_*key_([\w]+?)_off_([\w]+?)_der_([\w]+?)_*)?_([\w_-]+?)(\.bin)?$', s)
         if m is None:
             return ExpInfo()
 
