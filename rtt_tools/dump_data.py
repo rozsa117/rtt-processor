@@ -369,6 +369,26 @@ def comp_coverage(projected_tests, alpha=1e-5):
     return res
 
 
+def cmp_to_key(mycmp):
+    """Convert a cmp= function into a key= function"""
+    class K:
+        def __init__(self, obj, *args):
+            self.obj = obj
+        def __lt__(self, other):
+            return mycmp(self.obj, other.obj) < 0
+        def __gt__(self, other):
+            return mycmp(self.obj, other.obj) > 0
+        def __eq__(self, other):
+            return mycmp(self.obj, other.obj) == 0
+        def __le__(self, other):
+            return mycmp(self.obj, other.obj) <= 0
+        def __ge__(self, other):
+            return mycmp(self.obj, other.obj) >= 0
+        def __ne__(self, other):
+            return mycmp(self.obj, other.obj) != 0
+    return K
+
+
 class Config:
     def __init__(self, conf=None):
         self.conf = conf or {}
@@ -1014,7 +1034,7 @@ class Loader:
 
     def load_booltest_as_subtests(self, bt: Battery, alpha: float, exp: str, subs: list):
         # Create test
-        tt = Test(idd=self.last_bool_test_id, name='booltest', palpha=alpha, passed=False,
+        tt = Test(idd=self.last_bool_test_id, name='', palpha=alpha, passed=False,
                   test_idx=0, battery_id=bt.id)
 
         tt.battery = bt
