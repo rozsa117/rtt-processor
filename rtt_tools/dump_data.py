@@ -638,6 +638,9 @@ class Test:
     def get_single_pval(self):
         return sidak_inv(min(self.summarized_pvals), len(self.summarized_pvals)) if self.summarized_pvals else None
 
+    def get_min_pval(self):
+        return min(self.summarized_pvals) if self.summarized_pvals else None
+
 
 class Battery:
     def __init__(self, idd, name, passed, total, alpha, exp_id, job_id=None):
