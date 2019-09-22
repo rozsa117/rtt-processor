@@ -243,6 +243,68 @@ def get_ex_byidx(bitmap, idx):  # new index -> old index
     raise ValueError('Not found')
 
 
+def logdif(a, b):
+    if a == 0 or b == 0: return None
+    return math.log(a, 2) - math.log(b, 2)
+
+
+def get_pval_partition(pval, pvalbins):
+    binidx = 0
+    for idx, b in enumerate(pvalbins):
+        if pval < b:
+            return idx
+    return len(pvalbins)
+
+
+def shortenBat(name):
+    name = name.replace('NIST Statistical Testing Suite', 'NSTS')
+    name = name.replace('Dieharder', 'D')
+    name = name.replace('TestU01 Alphabit', 'U01A')
+    name = name.replace('TestU01 Big Crush', 'U01BC')
+    name = name.replace('TestU01 Block Alphabit', 'U01BA')
+    name = name.replace('TestU01 Rabbit', 'U01R')
+    name = name.replace('TestU01 Small Crush', 'U01SC')
+    return name
+
+
+def shortenTest(name, skip_bat=False):
+    if isinstance(name, (list, tuple)):
+        if skip_bat: name = name[1:]
+        name = '|'.join([str(x) for x in name])
+    name = shortenBat(name)
+    return name
+
+
+def get_battery_idx(name):
+    if isinstance(name, (list,tuple)):
+        name = name[0]
+    if name.startswith('NIST Statistical Testing Suite'):
+        return 0
+    elif name.startswith('FIPS140-2'):
+        return 1
+    elif name.startswith('Dieharder'):
+        return 2
+    elif name.startswith('TestU01 Alphabit'):
+        return 3
+    elif name.startswith('TestU01 Big Crush'):
+        return 4
+    elif name.startswith('TestU01 Block Alphabit'):
+        return 5
+    elif name.startswith('TestU01 Rabbit'):
+        return 6
+    elif name.startswith('TestU01 Small Crush'):
+        return 7
+    elif name.lower().startswith('booltest'):
+        return 8
+    else:
+        return -1
+
+
+def get_short_bat(idx):
+    x = ['NIST', 'FIPS140-2', 'Dieharder', 'U01 Alphabit', 'U01 Big Crush', 'U01 Balphabit', 'U01 Rabbit', 'U01 SCrush', 'Booltest']
+    return x[idx] if idx >= 0 else '?'
+
+
 def get_maximum_detections(selection, tests_srt, do_p):
     ctests = project_tests(tests_srt, selection)
     total_det = sum(selection) * len(tests_srt)
@@ -349,7 +411,7 @@ def sorted_perm(iterable, key=lambda x: x):
 
 def apply_permutation(iterable, perm):
     mp = {x: idx for idx, x in enumerate(perm)}
-    return sorted(zip(range(len(iterable)), iterable), key=lambda x: mp[x[0]])
+    return [x[1] for x in sorted(zip(range(len(iterable)), iterable), key=lambda x: mp[x[0]])]
 
 
 # Coverage computation: relative coverage, one input stream - detected if detected with at least one test.
@@ -387,6 +449,70 @@ def cmp_to_key(mycmp):
         def __ne__(self, other):
             return mycmp(self.obj, other.obj) != 0
     return K
+
+
+def shorten_test_name(xx):
+    xx = re.sub(r'\s+test(s)?$', '', xx, flags=re.I)
+    xx = re.sub(r'^dieharder\s', '', xx, flags=re.I)
+    xx = re.sub(r'^diehard\s', '', xx, flags=re.I)
+    xx = re.sub(r'^sts\s', '', xx, flags=re.I)
+    if 'Test For Frequency Within A Block' in xx:
+        xx = 'FreqInBlock'
+    if 'Test for the Longest Run of Ones in a Block' in xx:
+        xx = 'LongestRun1inBlock'
+    if 'Non-overlapping (Aperiodic) Template Matching' in xx:
+        xx = 'AperiodicTplMatch'
+    if 'Overlapping (Periodic) Template Matching' in xx:
+        xx = 'PeriodiTplMatch'
+    if 'Discrete Fourier Transform (Spectral)' in xx:
+        xx = 'Spectral'
+    if 'MultinomialBitsOver' in xx:
+        xx = 'MultBitsOver'
+    if 'Cumulative Sum (Cusum)' in xx:
+        xx = 'Cumsum'
+    if 'RGB Kolmogorov-Smirnov' in xx:
+        xx = 'RGB KS'
+    if 'Serial Test (Generalized)' in xx:
+        xx = 'Serial (Gen.)'
+    if 'RGB Bit Distribution' in xx:
+        xx = 'RGB BitDist'
+    if 'Minimum Distance (2d Circle)' in xx:
+        xx = 'MinDist (2dCirc)'
+    if 'RGB Generalized Minimum Distance' in xx:
+        xx = 'RGB GenMinDist'
+    if 'Random Binary Matrix Rank' in xx:
+        xx = 'RandBinMatrixRank'
+    if "Maurer's Universal Statistical" in xx:
+        xx = 'Maurer UniStat'
+    if '3d Sphere (Minimum Distance)' in xx:
+        xx = 'MinDist (3dSphere)'
+    return xx
+
+
+def process_test_x_axis(x_data, test_mapping=None, keep_battery=False):
+    xx_data = []
+    for xx in x_data:
+        if 'booltest' in xx[0] and test_mapping:
+            p = test_mapping[xx].params
+            bstring = 'booltest-%s-%s-%s' if keep_battery else '%s-%s-%s'
+            xx_data.append(bstring % (p.conf['m'], p.conf['deg'], p.conf['k']))
+
+        else:
+            cbt = shortenBat(xx[0])
+            xx = list(xx[1:])
+            if '_' in xx[0]:
+                xx[0] = xx[0][xx[0].index('_') + 1:]
+            xx[0] = shorten_test_name(xx[0])
+            xx = '|'.join([str(x) for x in xx])
+            xx_data.append(('%s|%s' % (cbt, xx)) if keep_battery else xx)
+
+    # Need unique x_labels, otherwise cancels out (lower number than expected)
+    cxx, cxxs = [], set()
+    for xx in xx_data:
+        while xx in cxxs: xx = ' ' + xx
+        cxx.append(xx)
+        cxxs.add(xx)
+    return cxx
 
 
 class Config:
