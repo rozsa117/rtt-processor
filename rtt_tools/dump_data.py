@@ -382,15 +382,16 @@ def doChunks(l, n):
         yield l[i:i + n]
 
 
-def filterTests(tests_srt, excl_extra=None):
+def filterTests(tests_srt, excl_extra=[], ret_idx=False):
     res = []
     excl = [
                'TestU01 Rabbit|smultin_MultinomialBitsOver',
                'NIST Statistical Testing Suite|Random Excursions Test',
                'NIST Statistical Testing Suite|Random Excursions Variant Test',
-           ] + (excl_extra if excl_extra else [])
+           ] + excl_extra
 
-    for x in tests_srt:
+    take_idx = []
+    for idx, x in enumerate(tests_srt):
         tname = x[0]
         if isinstance(tname, (list, tuple)):
             tname = '|'.join([str(y) for y in tname])
@@ -400,8 +401,11 @@ def filterTests(tests_srt, excl_extra=None):
                 skip = True
                 break
         if not skip:
+            take_idx.append(1)
             res.append(x)
-    return res
+        else:
+            take_idx.append(0)
+    return res if not ret_idx else (res, take_idx)
 
 
 def sorted_perm(iterable, key=lambda x: x):
@@ -1165,6 +1169,7 @@ class Loader:
         # Create test
         tt = Test(idd=self.last_bool_test_id, name='', palpha=alpha, passed=False,
                   test_idx=0, battery_id=bt.id)
+        tt.summarized_pvals = []
 
         tt.battery = bt
         tt.battery.tests[tt.id] = tt
@@ -1199,6 +1204,7 @@ class Loader:
             self.new_stats(stat1, stat1.name)
             self.new_stats(stat2, stat2.name)
             num_rejects += 0 if stat1.passed else 1
+            tt.summarized_pvals.append(stat1.value)
 
         tt.passed = num_rejects == 0  # num_rejects < len(subs) / 2
         bt.passed = tt.passed
