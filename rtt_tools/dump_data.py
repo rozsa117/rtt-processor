@@ -835,22 +835,22 @@ class Loader:
         return int(m.group(1)) * pow(base, tbl[m.group(2)])
 
     def break_exp(self, s):
-        m = re.match(r'^SECMARGINPAPER(\d+)(?:_([\w]+?))?_seed_([\w]+?)_([\w]+?)_(?:_*key_([\w]+?)_off_([\w]+?)_der_([\w]+?)_*)?_([\w_-]+?)(\.bin)?$', s)
+        #m = re.match(r'^EXPUNSET(?:_([\w]+?))?_seed_([\w]+?)_([\w]+?)_(?:key_([\w]*?)_off_([\w]+?)_der_([\w]+?)_*)?_([\w_-]+?)_r(-?[\w]+?)_b([\w]+?)(\.bin)?$', s)
+        m = re.match(r'^TARO_DP_2020_0.(?:_([\w]+?))?_seed_([\w]+?)_([\w]+?)_(?:key_([\w]*?)_off_([\w]+?)_der_([\w]+?)_*)?_([\w_-]+?)_r(-?[\w]+?)_b([\w]+?)(\.bin)?$', s)
         if m is None:
             return ExpInfo()
 
-        psize = self.parse_size(m.group(4))
-        ei = ExpInfo(eid=int(m.group(1)), meth=m.group(2), seed=m.group(3), osize=m.group(4), size=psize, fnc=m.group(8))
-        if m.group(5):
-            ei.key = m.group(5)
-            ei.offset = m.group(6)
-            ei.derivation = m.group(7)
+        psize = self.parse_size(m.group(3))
+        ei = ExpInfo(eid=0, meth=m.group(1), seed=m.group(2), osize=m.group(3), size=psize, fnc=m.group(7))
+        ei.fnc_name = m.group(7)
+        ei.fnc_round = int(m.group(8))
+        ei.fnc_block = m.group(9)
 
-        m = re.match(r'^([\w_-]+)_r([\d]+)(?:_b([\d]+))(.*)$', m.group(8), re.I)
-        if m:
-            ei.fnc_name = m.group(1)
-            ei.fnc_round = int(m.group(2))
-            ei.fnc_block = m.group(3)
+        if m.group(4):
+            ei.key = m.group(4)
+            ei.offset = m.group(5)
+            ei.derivation = m.group(6)
+
         return ei
 
     def queue_summary(self):
@@ -1015,7 +1015,7 @@ class Loader:
             logger.info("Loading all experiments")
             c.execute("""
                 SELECT id, name FROM experiments 
-                WHERE name LIKE '%SECMARGINPAPER%'
+                WHERE name LIKE '%TARO_DP_2020_01%' or name LIKE '%TARO_DP_2020_02%' or name LIKE '%TARO_DP_2020_07%'
             """)
 
             wanted_exps = set([int(x) for x in self.args.experiments])
@@ -1060,6 +1060,7 @@ class Loader:
                     self.experiments[bt.exp_id].batteries[bt.id] = bt
                     bat2exp[bt.id] = bt.exp_id
 
+            '''
             # Load all tests for all batteries
             bids = sorted(list(bat2exp.keys()))
             bidsmap = {x.id: x for x in self.batteries.values()}
@@ -1083,7 +1084,7 @@ class Loader:
             self.process_test(True)
             self.process_variant(True)
             self.process_stest(True)
-
+            '''
     def load_booltest(self, js=None, fname=None, alpha=1/20000., as_subtests=True):
         if fname:
             with open(fname, 'r') as fh:
@@ -1307,6 +1308,7 @@ class Loader:
             cdata['seed'] = exp.exp_info.seed
             cdata['size'] = exp.exp_info.size
             cdata['osize'] = exp.exp_info.osize
+            cdata['round'] = exp.exp_info.fnc_round
             cdata['fnc'] = exp.exp_info.fnc
             cdata['batteries'] = []
 
@@ -1407,12 +1409,14 @@ class Loader:
         res_data['exp_data'] = exp_data
         json.dump(res_data, open('res_chars_full.json', 'w'), indent=2)
 
-        logger.info('DONE ')
+        logger.info('DONE dump_data')
+
+        return exp_data
 
 
 def main():
     l = Loader()
-    l.main()
+    return l.main()
 
 
 if __name__ == "__main__":
